@@ -254,5 +254,73 @@ loom "numeric-keys" {
         )
 
 
+class MousePositionPickerTests(unittest.TestCase):
+    def test_coordinate_format_matches_loom_syntax(self):
+        from keyloom.mousepos import format_coordinates
+        self.assertEqual(format_coordinates(640, 420), "640, 420")
+
+    def test_tooltip_prefers_below_and_right(self):
+        from keyloom.mousepos import tooltip_position
+        self.assertEqual(tooltip_position(100, 100, 1368, 768, 80, 30), (118, 118))
+
+    def test_tooltip_flips_when_it_would_leave_the_screen(self):
+        from keyloom.mousepos import tooltip_position
+        # Near the right edge: move the tooltip to the left of the cursor.
+        self.assertEqual(tooltip_position(1360, 100, 1368, 768, 80, 30), (1262, 118))
+        # Near the bottom edge: move the tooltip above the cursor.
+        self.assertEqual(tooltip_position(100, 760, 1368, 768, 80, 30), (118, 712))
+
+    def test_tooltip_clamps_to_screen(self):
+        from keyloom.mousepos import clamp_to_screen, tooltip_position
+        self.assertEqual(clamp_to_screen(-5, 9999, 1368, 768), (0, 767))
+        tx, ty = tooltip_position(0, 0, 60, 40, 80, 30)
+        self.assertEqual((tx, ty), (0, 0))
+
+    def test_cli_flag_is_parsed(self):
+        from keyloom.cli import _parser
+        args = _parser().parse_args(["--get-mouse-pos"])
+        self.assertTrue(args.get_mouse_pos)
+
+    def test_cli_prints_picked_position(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from keyloom import cli
+
+        with patch("keyloom.mousepos.pick_mouse_position", return_value=(12, 34)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = cli.main(["--get-mouse-pos"])
+        self.assertEqual(code, 0)
+        self.assertEqual(out.getvalue().strip(), "12, 34")
+
+    def test_cli_cancel_returns_130(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from keyloom import cli
+
+        with patch("keyloom.mousepos.pick_mouse_position", return_value=None):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = cli.main(["--get-mouse-pos"])
+        self.assertEqual(code, 130)
+        self.assertIn("cancelled", err.getvalue())
+
+    def test_cli_reports_picker_startup_errors(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from keyloom import cli
+        from keyloom.mousepos import PickerError
+
+        with patch("keyloom.mousepos.pick_mouse_position", side_effect=PickerError("no display")):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                code = cli.main(["--get-mouse-pos"])
+        self.assertEqual(code, 2)
+        self.assertIn("no display", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

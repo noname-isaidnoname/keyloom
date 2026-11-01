@@ -97,6 +97,14 @@ keyloom --screen
 
 The script uses desktop absolute coordinates. Wayland compositors, multiple monitors, negative monitor origins and fractional scaling may affect the mapping. Set `option screen = "WIDTHxHEIGHT"` in the script or pass `--screen-size WIDTHxHEIGHT` if auto-detection is wrong. The example coordinates are placeholders, not a screen calibration.
 
+To pick coordinates from the desktop instead of guessing, run:
+
+```bash
+keyloom --get-mouse-pos
+```
+
+A tooltip follows the pointer and shows the current `x, y`. Left-click consumes the click, prints the position (for example `640, 420`) and exits. Right-click cancels; `Esc` also works while the overlay has keyboard focus. The picker uses a full-screen XWayland overlay when the compositor supports `_NET_WM_WINDOW_OPACITY` (KWin and most compositors do) and falls back to a small crosshair reticle otherwise. It needs `tkinter` (usually `python3-tk`) and does not need evdev or `/dev/uinput` permissions.
+
 ## CLI reference
 
 ```text
@@ -104,6 +112,7 @@ keyloom --init <script-name> [--force]
 keyloom --check <existing-script-path>
 keyloom --run <script-path> [--dry-run] [--input-device /dev/input/eventN]
                 [--output-backend auto|ydotool|uinput] [--screen-size WxH]
+keyloom --get-mouse-pos
 keyloom --docs [topic]
 keyloom --list-api
 keyloom --devices

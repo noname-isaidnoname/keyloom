@@ -36,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="keyloom",
         description="Build and run Linux desktop automation scripts in the Keyloom language.",
-        epilog="Examples: keyloom --init demo | keyloom --check demo.loom | keyloom --run demo.loom",
+        epilog="Examples: keyloom --init demo | keyloom --check demo.loom | keyloom --run demo.loom | keyloom --get-mouse-pos",
     )
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--init", metavar="SCRIPT", help="create a starter .loom script")
@@ -45,6 +45,7 @@ def _parser() -> argparse.ArgumentParser:
     mode.add_argument("--docs", nargs="?", const="all", metavar="TOPIC", help="show language documentation")
     mode.add_argument("--devices", action="store_true", help="list visible input devices and permissions")
     mode.add_argument("--screen", action="store_true", help="print the detected desktop size")
+    mode.add_argument("--get-mouse-pos", action="store_true", help="pick a pointer position with an on-screen tooltip")
     mode.add_argument("--list-api", action="store_true", help="list built-in API groups")
     mode.add_argument("--doctor", action="store_true", help="inspect input/output prerequisites")
     p.add_argument("script", nargs="?", help="script path (shorthand for --run PATH)")
@@ -164,9 +165,32 @@ def _doctor() -> int:
         print("  note: the ydotool client expects a running ydotoold daemon (which may be provided by a system service).")
     uinput = Path("/dev/uinput")
     print(f"/dev/uinput: {'present and writable' if uinput.exists() and os.access(uinput, os.W_OK) else 'missing or not writable'}")
+    try:
+        import tkinter  # noqa: F401
+        print("tkinter: available (keyloom --get-mouse-pos)")
+    except ImportError:
+        print("tkinter: MISSING — install python3-tk for keyloom --get-mouse-pos")
     print(f"wl-copy / wl-paste: {bool(shutil.which('wl-copy'))} / {bool(shutil.which('wl-paste'))}")
     if not paths:
         print("Input note: Keyloom needs permission to read a keyboard from /dev/input/event*. See README.md → Wayland and Xwayland setup.")
+    return 0
+
+
+def _get_mouse_pos(args) -> int:
+    from .mousepos import PickerError, format_coordinates, pick_mouse_position
+
+    try:
+        position = pick_mouse_position(verbose=args.verbose)
+    except PickerError as exc:
+        print(f"keyloom: {exc}", file=sys.stderr)
+        return 2
+    except KeyboardInterrupt:
+        print("\n[keyloom] Mouse position pick cancelled.", file=sys.stderr)
+        return 130
+    if position is None:
+        print("keyloom: mouse position pick cancelled.", file=sys.stderr)
+        return 130
+    print(format_coordinates(*position))
     return 0
 
 
@@ -213,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
         w, h = detect_screen_size()
         print(f"{w}x{h}")
         return 0
+    if args.get_mouse_pos: return _get_mouse_pos(args)
     if args.list_api:
         for group, entries in API_REFERENCE.items():
             print(f"{group}: {', '.join(entries)}")

@@ -276,6 +276,37 @@ class MousePositionPickerTests(unittest.TestCase):
         tx, ty = tooltip_position(0, 0, 60, 40, 80, 30)
         self.assertEqual((tx, ty), (0, 0))
 
+    def test_screenshot_commands_prefer_spectacle(self):
+        from unittest.mock import patch
+        from keyloom import mousepos
+
+        with patch("keyloom.mousepos.shutil.which", return_value="/usr/bin/tool"):
+            commands = mousepos.screenshot_commands("/tmp/shot.png")
+        self.assertEqual(
+            [argv[0] for argv in commands],
+            ["spectacle", "grim", "gnome-screenshot", "scrot", "import"],
+        )
+        self.assertEqual(
+            commands[0],
+            ["spectacle", "-b", "-n", "-f", "--scaled", "-o", "/tmp/shot.png"],
+        )
+
+    def test_screenshot_commands_empty_without_tools(self):
+        from unittest.mock import patch
+        from keyloom import mousepos
+
+        with patch("keyloom.mousepos.shutil.which", return_value=None):
+            self.assertEqual(mousepos.screenshot_commands("/tmp/shot.png"), [])
+
+    def test_capture_desktop_reports_missing_tools(self):
+        from unittest.mock import patch
+        from keyloom import mousepos
+
+        with patch("keyloom.mousepos.screenshot_commands", return_value=[]):
+            with self.assertRaises(mousepos.PickerError) as raised:
+                mousepos.capture_desktop()
+        self.assertIn("screenshot tool", str(raised.exception))
+
     def test_cli_flag_is_parsed(self):
         from keyloom.cli import _parser
         args = _parser().parse_args(["--get-mouse-pos"])

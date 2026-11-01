@@ -170,6 +170,12 @@ def _doctor() -> int:
         print("tkinter: available (keyloom --get-mouse-pos)")
     except ImportError:
         print("tkinter: MISSING — install python3-tk for keyloom --get-mouse-pos")
+    from .mousepos import available_screenshot_tools
+    screenshot_tools = available_screenshot_tools()
+    if screenshot_tools:
+        print(f"screenshot tools (picker): {', '.join(screenshot_tools)}")
+    else:
+        print("screenshot tools (picker): NONE — install spectacle, grim, gnome-screenshot, scrot, or ImageMagick import")
     print(f"wl-copy / wl-paste: {bool(shutil.which('wl-copy'))} / {bool(shutil.which('wl-paste'))}")
     if not paths:
         print("Input note: Keyloom needs permission to read a keyboard from /dev/input/event*. See README.md → Wayland and Xwayland setup.")

@@ -1,25 +1,33 @@
 """Interactive mouse position picker.
 
-Runs an XWayland overlay and shows the pointer coordinates next to the cursor.
-A left click is consumed by the overlay, printed to stdout, and ends the
-picker. This module imports tkinter lazily so ``keyloom --check`` and the
-runtime never need a display.
+Captures the desktop, shows it full-screen in an XWayland window, and draws a
+live coordinate tooltip over it. A left click is consumed by the overlay,
+printed to stdout, and ends the picker. The screenshot keeps the desktop
+visible even though the overlay itself is opaque, which is what makes clicks
+over native Wayland windows reliable. This module imports tkinter lazily so
+``keyloom --check`` and the runtime never need a display.
 """
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 import sys
+import tempfile
 
 
 class PickerError(RuntimeError):
-    """The picker cannot start (no display, missing tkinter, Tk failure)."""
+    """The picker cannot start (no display, missing tkinter, no screenshot)."""
 
 
 TOOLTIP_OFFSET = 18
-OVERLAY_OPACITY = 0.01
-RETICLE_SIZE = 128
-RETICLE_POLL_MS = 8
-OVERLAY_POLL_MS = 16
+POLL_MS = 16
+SCREENSHOT_TIMEOUT = 15
+
+# Preference order. Spectacle covers KDE, grim covers wlroots, and the rest are
+# X11 and GNOME fallbacks.
+SCREENSHOT_TOOLS = ("spectacle", "grim", "gnome-screenshot", "scrot", "import")
 
 
 def format_coordinates(x: int, y: int) -> str:
@@ -74,153 +82,102 @@ def _tkinter():
     return tk
 
 
-def _load_x11():
-    """Return (ctypes, libX11, display) or None when X11 is unavailable."""
-    try:
-        import ctypes
-        import ctypes.util
-    except ImportError:
-        return None
-    library = ctypes.util.find_library("X11")
-    if not library:
-        return None
-    try:
-        x11 = ctypes.CDLL(library)
-        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
-        x11.XOpenDisplay.restype = ctypes.c_void_p
-        display = x11.XOpenDisplay(None)
-    except (AttributeError, OSError):
-        return None
-    if not display:
-        return None
-    return ctypes, x11, display
+def available_screenshot_tools() -> list[str]:
+    """Return the installed screenshot tools, in preference order."""
+    return [name for name in SCREENSHOT_TOOLS if shutil.which(name)]
 
 
-def _opacity_supported() -> bool:
-    """Check the EWMH _NET_SUPPORTED list for window opacity."""
-    loaded = _load_x11()
-    if loaded is None:
-        return False
-    ctypes, x11, display = loaded
-    try:
-        c_ulong = ctypes.c_ulong
-        c_int = ctypes.c_int
-        c_uint = ctypes.c_uint
-        c_void_p = ctypes.c_void_p
-        c_char_p = ctypes.c_char_p
+def screenshot_commands(path: str) -> list[list[str]]:
+    """Return screenshot commands that can capture the whole desktop.
 
-        x11.XInternAtom.argtypes = [c_void_p, c_char_p, c_int]
-        x11.XInternAtom.restype = c_ulong
-        x11.XDefaultRootWindow.argtypes = [c_void_p]
-        x11.XDefaultRootWindow.restype = c_ulong
-        x11.XGetWindowProperty.argtypes = [
-            c_void_p, c_ulong, c_ulong, ctypes.c_long, ctypes.c_long, c_int,
-            c_ulong, ctypes.POINTER(c_ulong), ctypes.POINTER(c_int),
-            ctypes.POINTER(c_ulong), ctypes.POINTER(c_ulong),
-            ctypes.POINTER(ctypes.POINTER(ctypes.c_ubyte)),
-        ]
-        x11.XGetWindowProperty.restype = c_int
-        x11.XFree.argtypes = [c_void_p]
-        x11.XCloseDisplay.argtypes = [c_void_p]
-
-        supported_atom = x11.XInternAtom(display, b"_NET_SUPPORTED", False)
-        atom_type = x11.XInternAtom(display, b"ATOM", False)
-        opacity_atom = x11.XInternAtom(display, b"_NET_WM_WINDOW_OPACITY", False)
-        actual_type = c_ulong()
-        actual_format = c_int()
-        nitems = c_ulong()
-        bytes_after = c_ulong()
-        prop = ctypes.POINTER(ctypes.c_ubyte)()
-        status = x11.XGetWindowProperty(
-            display, x11.XDefaultRootWindow(display), supported_atom,
-            0, 4096, False, atom_type, ctypes.byref(actual_type),
-            ctypes.byref(actual_format), ctypes.byref(nitems),
-            ctypes.byref(bytes_after), ctypes.byref(prop),
-        )
-        if status != 0 or not prop:
-            return False
-        try:
-            values = ctypes.cast(prop, ctypes.POINTER(c_ulong))
-            return any(values[i] == opacity_atom for i in range(nitems.value))
-        finally:
-            x11.XFree(prop)
-    except (AttributeError, OSError, ValueError):
-        return False
-    finally:
-        try:
-            x11.XCloseDisplay(display)
-        except Exception:
-            pass
-
-
-def _apply_opacity(window_id: int, opacity: float) -> bool:
-    """Set _NET_WM_WINDOW_OPACITY on a window and its WM frame.
-
-    Tk's ``-alpha`` attribute targets the client window, but KWin composites
-    the WM frame. Setting the EWMH property on both keeps the overlay nearly
-    transparent without affecting the opaque tooltip.
+    Spectacle is preferred on KDE. grim covers wlroots, and the remaining
+    commands are fallbacks for X11 and GNOME.
     """
-    loaded = _load_x11()
-    if loaded is None:
-        return False
-    ctypes, x11, display = loaded
-    try:
-        c_ulong = ctypes.c_ulong
-        c_int = ctypes.c_int
-        c_uint = ctypes.c_uint
-        c_void_p = ctypes.c_void_p
-        c_char_p = ctypes.c_char_p
+    commands: list[list[str]] = []
+    for name in available_screenshot_tools():
+        if name == "spectacle":
+            commands.append(["spectacle", "-b", "-n", "-f", "--scaled", "-o", path])
+        elif name == "grim":
+            commands.append(["grim", path])
+        elif name == "gnome-screenshot":
+            commands.append(["gnome-screenshot", "-f", path])
+        elif name == "scrot":
+            commands.append(["scrot", path])
+        elif name == "import":
+            commands.append(["import", "-window", "root", path])
+    return commands
 
-        x11.XInternAtom.argtypes = [c_void_p, c_char_p, c_int]
-        x11.XInternAtom.restype = c_ulong
-        x11.XQueryTree.argtypes = [
-            c_void_p, c_ulong, ctypes.POINTER(c_ulong), ctypes.POINTER(c_ulong),
-            ctypes.POINTER(ctypes.POINTER(c_ulong)), ctypes.POINTER(c_uint),
-        ]
-        x11.XQueryTree.restype = c_int
-        x11.XChangeProperty.argtypes = [
-            c_void_p, c_ulong, c_ulong, c_ulong, c_int, c_int, c_void_p, c_int,
-        ]
-        x11.XChangeProperty.restype = c_int
-        x11.XFlush.argtypes = [c_void_p]
-        x11.XFree.argtypes = [c_void_p]
-        x11.XCloseDisplay.argtypes = [c_void_p]
 
-        atom = x11.XInternAtom(display, b"_NET_WM_WINDOW_OPACITY", False)
-        if not atom:
-            return False
-        value = c_ulong(max(0, min(0xFFFFFFFF, int(opacity * 0xFFFFFFFF))))
+def capture_desktop() -> tuple[str, str]:
+    """Capture the desktop to a temporary PNG.
 
-        targets = {int(window_id)}
-        root_return = c_ulong()
-        parent = c_ulong()
-        children = ctypes.POINTER(c_ulong)()
-        count = c_uint()
-        if x11.XQueryTree(display, c_ulong(window_id), ctypes.byref(root_return),
-                          ctypes.byref(parent), ctypes.byref(children), ctypes.byref(count)):
-            if parent.value:
-                targets.add(int(parent.value))
-            if children:
-                x11.XFree(children)
-
-        for target in targets:
-            x11.XChangeProperty(
-                display, c_ulong(target), c_ulong(atom), c_ulong(6), 32, 0,
-                ctypes.byref(value), 1,
-            )
-        x11.XFlush(display)
-        return True
-    except (AttributeError, OSError, ValueError):
-        return False
-    finally:
+    Returns ``(path, tool_name)``. The caller owns the file and should remove it.
+    """
+    handle, path = tempfile.mkstemp(prefix="keyloom-picker-", suffix=".png")
+    os.close(handle)
+    commands = screenshot_commands(path)
+    if not commands:
         try:
-            x11.XCloseDisplay(display)
+            os.unlink(path)
+        except OSError:
+            pass
+        raise PickerError(
+            "The mouse position picker needs a screenshot tool so the desktop "
+            "stays visible while you pick. Install spectacle (KDE), grim "
+            "(wlroots), gnome-screenshot, scrot, or ImageMagick's import."
+        )
+
+    failures: list[str] = []
+    for argv in commands:
+        try:
+            proc = subprocess.run(
+                argv, capture_output=True, text=True, timeout=SCREENSHOT_TIMEOUT
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            failures.append(f"{argv[0]}: {exc}")
+            continue
+        if proc.returncode == 0 and os.path.exists(path) and os.path.getsize(path) > 0:
+            return path, argv[0]
+        detail = (proc.stderr or proc.stdout).strip()
+        failures.append(f"{argv[0]}: {detail or f'exit {proc.returncode}'}")
+
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    raise PickerError(
+        "Could not capture the desktop for the mouse position picker. "
+        + "; ".join(failures)
+    )
+
+
+def _load_image(tk, path: str, width: int, height: int):
+    """Load the screenshot, preferring Pillow when it is installed."""
+    try:
+        from PIL import Image, ImageTk
+    except ImportError:
+        pass
+    else:
+        try:
+            image = Image.open(path)
+            if image.size != (width, height):
+                image = image.resize((width, height), Image.LANCZOS)
+            return ImageTk.PhotoImage(image)
         except Exception:
             pass
+
+    image = tk.PhotoImage(file=path)
+    image_width, image_height = image.width(), image.height()
+    # Tk can only downscale by integer factors. This covers 2x HiDPI captures;
+    # fractional scaling may still need --screen calibration.
+    factor = min(image_width // max(1, width), image_height // max(1, height))
+    if factor > 1:
+        image = image.subsample(factor, factor)
+    return image
 
 
 class MousePositionPicker:
-    """A click-capturing overlay with a coordinate tooltip."""
+    """A screenshot overlay with a coordinate tooltip and click capture."""
 
     def __init__(self, *, verbose: bool = False):
         self.verbose = verbose
@@ -230,15 +187,13 @@ class MousePositionPicker:
         self.screen_height = 0
         self._root = None
         self._capture = None
+        self._canvas = None
         self._tip = None
         self._label = None
+        self._image = None
+        self._screenshot_path: str | None = None
         self._tick_id = None
         self._closed = False
-        self._fullscreen = False
-        self._poll_ms = OVERLAY_POLL_MS
-        self._tooltip_offset = TOOLTIP_OFFSET
-        self._reticle_size = RETICLE_SIZE
-        self._reticle_pos: tuple[int, int] | None = None
 
     def run(self) -> tuple[int, int] | None:
         try:
@@ -268,88 +223,55 @@ class MousePositionPicker:
         height = max(1, int(root.winfo_screenheight()))
         self.screen_width, self.screen_height = width, height
 
-        if _opacity_supported():
-            self._build_fullscreen(tk, width, height)
-        else:
-            self._build_reticle(tk, width, height)
+        self._screenshot_path, tool = capture_desktop()
+        try:
+            self._build_overlay(tk, width, height)
+        except Exception:
+            self._remove_screenshot()
+            raise
         if self.verbose:
-            mode = "fullscreen overlay" if self._fullscreen else "reticle (no compositor opacity)"
-            print(f"[keyloom] picker mode: {mode}; screen bounds: {width}x{height}", file=sys.stderr)
+            print(
+                f"[keyloom] picker screenshot: {tool}; screen bounds: {width}x{height}",
+                file=sys.stderr,
+            )
 
         self._build_tooltip(tk)
-        for widget in (self._capture, self._tip):
-            widget.bind("<ButtonPress>", self._on_button)
-            widget.bind("<ButtonRelease>", self._consume)
-            widget.bind("<Escape>", self._on_cancel)
+        self._canvas.bind("<ButtonPress>", self._on_button)
+        self._canvas.bind("<ButtonRelease>", self._consume)
+        self._canvas.bind("<Escape>", self._on_cancel)
+        self._tip.bind("<ButtonPress>", self._on_button)
+        self._tip.bind("<ButtonRelease>", self._consume)
+        self._tip.bind("<Escape>", self._on_cancel)
         root.bind_all("<Escape>", self._on_cancel)
         self._tick()
 
-    def _build_fullscreen(self, tk, width: int, height: int) -> None:
+    def _build_overlay(self, tk, width: int, height: int) -> None:
         capture = tk.Toplevel(self._root)
         self._capture = capture
-        self._fullscreen = True
-        self._poll_ms = OVERLAY_POLL_MS
-        self._tooltip_offset = TOOLTIP_OFFSET
         capture.title("Keyloom mouse position")
         try:
-            # Splash windows are undecorated and stay out of the taskbar while
-            # still being managed, so the compositor honors EWMH opacity.
+            # A managed splash window is undecorated but still receives input
+            # above native Wayland windows. Override-redirect windows do not.
             capture.attributes("-type", "splash")
         except tk.TclError:
             capture.overrideredirect(True)
         capture.geometry(f"{width}x{height}+0+0")
-        capture.configure(bg="black", cursor="crosshair")
+        capture.configure(bg="black")
         capture.attributes("-topmost", True)
         capture.lift()
         try:
             capture.focus_force()
         except tk.TclError:
             pass
-        capture.update_idletasks()
-        capture.update()
-        if not _apply_opacity(capture.winfo_id(), OVERLAY_OPACITY):
-            try:
-                capture.attributes("-alpha", OVERLAY_OPACITY)
-            except tk.TclError:
-                pass
-            if self.verbose:
-                print(
-                    "[keyloom] could not set _NET_WM_WINDOW_OPACITY; the overlay "
-                    "may cover the desktop.",
-                    file=sys.stderr,
-                )
 
-    def _build_reticle(self, tk, width: int, height: int) -> None:
-        size = max(24, min(RETICLE_SIZE, width, height))
-        self._reticle_size = size
-        self._fullscreen = False
-        self._poll_ms = RETICLE_POLL_MS
-        self._tooltip_offset = size // 2 + 10
-
-        capture = tk.Toplevel(self._root)
-        self._capture = capture
-        capture.overrideredirect(True)
-        capture.attributes("-topmost", True)
-        capture.configure(bg="#111111", cursor="crosshair")
         canvas = tk.Canvas(
-            capture, width=size, height=size, bg="#111111",
-            highlightthickness=0, cursor="crosshair",
+            capture, width=width, height=height, bg="black",
+            highlightthickness=0,
         )
-        canvas.pack()
-        center = size // 2
-        canvas.create_line(center, 0, center, size, fill="#f5f5f5")
-        canvas.create_line(0, center, size, center, fill="#f5f5f5")
-        radius = max(6, size // 5)
-        canvas.create_oval(
-            center - radius, center - radius, center + radius, center + radius,
-            outline="#f5f5f5",
-        )
-        canvas.create_oval(
-            center - 2, center - 2, center + 2, center + 2,
-            fill="#ff6666", outline="",
-        )
-        px, py = self._root.winfo_pointerxy()
-        self._position_reticle(*clamp_to_screen(px, py, width, height))
+        canvas.pack(fill="both", expand=True)
+        self._canvas = canvas
+        self._image = _load_image(tk, self._screenshot_path, width, height)
+        canvas.create_image(0, 0, anchor="nw", image=self._image)
         capture.update_idletasks()
         capture.update()
 
@@ -359,7 +281,7 @@ class MousePositionPicker:
         tip.withdraw()
         tip.overrideredirect(True)
         tip.attributes("-topmost", True)
-        tip.configure(bg="#111111", cursor="crosshair")
+        tip.configure(bg="#111111")
         label = tk.Label(
             tip,
             text=format_coordinates(0, 0),
@@ -375,15 +297,6 @@ class MousePositionPicker:
         self._label = label
         tip.update_idletasks()
 
-    def _position_reticle(self, px: int, py: int) -> None:
-        size = self._reticle_size
-        x = max(0, min(self.screen_width - size, px - size // 2))
-        y = max(0, min(self.screen_height - size, py - size // 2))
-        if self._reticle_pos == (x, y):
-            return
-        self._reticle_pos = (x, y)
-        self._capture.geometry(f"{size}x{size}+{x}+{y}")
-
     def _tick(self) -> None:
         if self._closed or self._root is None:
             return
@@ -391,20 +304,15 @@ class MousePositionPicker:
             px, py = self._root.winfo_pointerxy()
             px, py = clamp_to_screen(px, py, self.screen_width, self.screen_height)
             self._label.configure(text=format_coordinates(px, py))
-            if not self._fullscreen:
-                self._position_reticle(px, py)
             self._tip.update_idletasks()
             tw = max(1, self._tip.winfo_width())
             th = max(1, self._tip.winfo_height())
-            tx, ty = tooltip_position(
-                px, py, self.screen_width, self.screen_height, tw, th,
-                offset=self._tooltip_offset,
-            )
+            tx, ty = tooltip_position(px, py, self.screen_width, self.screen_height, tw, th)
             self._tip.geometry(f"+{tx}+{ty}")
             if not self._tip.winfo_ismapped():
                 self._tip.deiconify()
                 self._tip.lift()
-            self._tick_id = self._root.after(self._poll_ms, self._tick)
+            self._tick_id = self._root.after(POLL_MS, self._tick)
         except Exception as exc:  # Tk can fail if the display disappears.
             if self.verbose:
                 print(f"[keyloom] picker stopped: {exc}", file=sys.stderr)
@@ -449,8 +357,17 @@ class MousePositionPicker:
             except Exception:
                 pass
 
+    def _remove_screenshot(self) -> None:
+        if self._screenshot_path:
+            try:
+                os.unlink(self._screenshot_path)
+            except OSError:
+                pass
+            self._screenshot_path = None
+
     def _destroy(self) -> None:
         self._closed = True
+        self._remove_screenshot()
         for widget in (self._tip, self._capture, self._root):
             if widget is None:
                 continue
@@ -460,9 +377,11 @@ class MousePositionPicker:
                 pass
         self._tip = None
         self._capture = None
+        self._canvas = None
+        self._image = None
         self._root = None
 
 
 def pick_mouse_position(*, verbose: bool = False) -> tuple[int, int] | None:
-    """Show the overlay and return the picked position, or None if cancelled."""
+    """Show the screenshot overlay and return the picked position."""
     return MousePositionPicker(verbose=verbose).run()

@@ -13,7 +13,7 @@ User docs: `README.md`. Language reference: `keyloom --docs` (`src/keyloom/docs.
 | `src/keyloom/checker.py` | option values, key names, hold-token balance, `/dev/uinput` warnings |
 | `src/keyloom/runtime.py` | event loop, key tracking, dispatch, flow, expressions, hold refcounts |
 | `src/keyloom/backends.py` | `OutputBackend` protocol, ydotoold, uinput, dry run, backend selection |
-| `src/keyloom/mousepos.py` | XWayland coordinate-picker overlay (`--get-mouse-pos`) |
+| `src/keyloom/mousepos.py` | screenshot-overlay coordinate picker (`--get-mouse-pos`) |
 | `src/keyloom/cli.py` | `--init`, `--check`, `--run`, `--docs`, `--devices`, `--screen`, `--get-mouse-pos`, `--doctor`, `--list-api`, `--version` |
 | `src/keyloom/docs.py` | user-facing language guide and `API_REFERENCE` |
 | `examples/two_spots.loom` | A/D hold regression script used by tests |
@@ -104,12 +104,15 @@ Load it with `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript FI
 - `--run` refuses scripts with checker errors. `--dry-run` logs actions but still listens for physical keys.
 - Bad paths and parse errors print `keyloom: ...` and return 2, not a traceback.
 - `--init` refuses to overwrite unless `--force` is passed.
-- `--get-mouse-pos` imports tkinter lazily and never needs evdev. With EWMH
-  opacity it uses a nearly transparent full-screen XWayland overlay that consumes
-  clicks; without it, a small reticle follows the pointer. A separate tooltip
-  follows both. Left-click prints `x, y` and returns 0; right-click (or Esc when
-  focused) returns 130. Keep pure helpers (`format_coordinates`,
-  `tooltip_position`) testable without opening a display.
+- `--get-mouse-pos` imports tkinter lazily and never needs evdev. It captures
+  the desktop with spectacle, grim, gnome-screenshot, scrot, or ImageMagick
+  import, then shows that still image in a full-screen managed XWayland splash
+  window. The opaque splash window is what makes clicks over native Wayland
+  windows land on the picker; an override-redirect or transparent window does
+  not capture them. A separate tooltip follows the pointer. Left-click prints
+  `x, y` and returns 0; right-click (or Esc when focused) returns 130. Keep pure
+  helpers (`format_coordinates`, `tooltip_position`, `screenshot_commands`)
+  testable without opening a display.
 
 ## Style
 

@@ -1,14 +1,14 @@
 # Hold A to hold the left mouse button at spot A.
 # Hold D to hold the left mouse button at spot D.
-# Change the coordinates to match your desktop. Press PAUSE to stop Keyloom.
+# Change the coordinates to match your desktop. Press X to stop Keyloom.
 loom "two-spots" {
     option input = "evdev"
     option output = "auto"
-    option panic = "PAUSE"
+    option panic = "X"
     option screen = "auto"
 
     when key A goes down {
-        cursor warp 640, 420
+        cursor warp 304, 395
         mouse left hold as spot_a
     }
 
@@ -17,7 +17,7 @@ loom "two-spots" {
     }
 
     when key D goes down {
-        cursor warp 1080, 420
+        cursor warp 940, 412
         mouse left hold as spot_d
     }
 

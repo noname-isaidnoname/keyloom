@@ -119,11 +119,12 @@ Safety and runtime behavior
 * `launch` is disabled unless explicitly enabled; it never invokes a shell.
 * `--check` parses and statically checks a script without opening input devices.
 * `--dry-run` logs actions instead of injecting them, but still listens for keys.
-* `--get-mouse-pos` shows an XWayland overlay with a live coordinate tooltip.
-  Left-click consumes the click, prints `x, y`, and exits; right-click cancels
-  (Esc works when the overlay has focus). It needs tkinter, not evdev or
-  /dev/uinput permissions. Compositors without EWMH opacity get a small reticle
-  instead of a full-screen overlay.
+* `--get-mouse-pos` captures the desktop with spectacle, grim,
+  gnome-screenshot, scrot, or ImageMagick import, then shows that still image
+  full-screen in an XWayland overlay with a live coordinate tooltip. Left-click
+  consumes the click, prints `x, y`, and exits; right-click cancels (Esc works
+  when the overlay has focus). It needs tkinter and a screenshot tool, not evdev
+  or /dev/uinput permissions.
 * `--doctor` reports evdev, ydotool, uinput, Wayland/X11 and screen prerequisites.
 
 Linux backends

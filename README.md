@@ -103,7 +103,7 @@ To pick coordinates from the desktop instead of guessing, run:
 keyloom --get-mouse-pos
 ```
 
-A tooltip follows the pointer and shows the current `x, y`. Left-click consumes the click, prints the position (for example `640, 420`) and exits. Right-click cancels; `Esc` also works while the overlay has keyboard focus. The picker uses a full-screen XWayland overlay when the compositor supports `_NET_WM_WINDOW_OPACITY` (KWin and most compositors do) and falls back to a small crosshair reticle otherwise. It needs `tkinter` (usually `python3-tk`) and does not need evdev or `/dev/uinput` permissions.
+A tooltip follows the pointer and shows the current `x, y`. Left-click consumes the click, prints the position (for example `640, 420`) and exits. Right-click cancels; `Esc` also works while the overlay has keyboard focus. The picker first captures the desktop with `spectacle` (KDE), `grim`, `gnome-screenshot`, `scrot`, or ImageMagick's `import`, then shows that still image full-screen in an XWayland overlay. The desktop stays visible and the click does not reach the window underneath; the real cursor and live tooltip are drawn on top. It needs `tkinter` (usually `python3-tk`) and a screenshot tool, but not evdev or `/dev/uinput` permissions.
 
 ## CLI reference
 

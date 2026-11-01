@@ -379,11 +379,25 @@ class Runtime:
 
     async def _held_loop(self, event: Node, key: str, interval: float) -> None:
         if interval <= 0: return
+        loop = asyncio.get_running_loop()
+        # Tick on a fixed schedule. Sleeping the whole interval *after* the
+        # handler would add the handler's own duration to the period, so
+        # `every 10ms` with a 5ms tap would actually fire every ~15ms.
+        deadline = loop.time() + interval
         try:
             while key in self.pressed_keys and not self.stop_event.is_set():
-                await asyncio.sleep(interval)
-                if key in self.pressed_keys and not self.stop_event.is_set():
-                    await self._safe_dispatch(event, key, "held")
+                delay = deadline - loop.time()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                if key not in self.pressed_keys or self.stop_event.is_set():
+                    return
+                await self._safe_dispatch(event, key, "held")
+                deadline += interval
+                now = loop.time()
+                if deadline <= now:
+                    # The handler overran its tick. Skip whole ticks instead of
+                    # firing a burst of catch-up ticks.
+                    deadline += math.ceil((now - deadline) / interval) * interval
         except asyncio.CancelledError:
             raise
 

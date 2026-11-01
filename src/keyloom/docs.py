@@ -43,6 +43,11 @@ Event triggers
     when timer every 2s { ... }        # periodic event
     when app starts { ... }            # one time at runtime start
 
+A `stays held every DURATION` block ticks on a fixed schedule: time spent
+inside the block is part of the interval, not added to it, so one 5ms tap in an
+`every 10ms` block repeats every 10ms. A block that overruns its interval skips
+whole ticks instead of firing a burst of catch-up ticks.
+
 Keyboard names are Linux input names: A-Z, 0-9, F1-F24, LEFT, RIGHT, UP,
 DOWN, ENTER, SPACE, TAB, ESC, BACKSPACE, DELETE, CTRL, SHIFT, ALT, SUPER,
 HOME, END, PAGEUP, PAGEDOWN, INSERT, PAUSE. Chords use +, e.g. CTRL+SHIFT+S.

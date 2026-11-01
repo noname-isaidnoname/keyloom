@@ -61,6 +61,47 @@ loom "held" {
 ''')
         self.assertEqual(script.events[0].args, ("key", "F8", "held", 0.05))
 
+    def test_held_loop_ticks_on_a_fixed_cadence(self):
+        import asyncio
+        from statistics import median
+        from keyloom.runtime import Runtime
+        script = parse('''
+loom "cadence" {
+    when key X stays held every 10ms {
+        mouse left tap for 5ms
+    }
+}
+''')
+
+        class TimedBackend:
+            def __init__(self): self.downs = []
+            def button(self, name, down):
+                if down: self.downs.append(asyncio.get_running_loop().time())
+            def key(self, name, down): pass
+            def warp(self, x, y): pass
+            def move(self, dx, dy): pass
+            def type_text(self, text): pass
+            def scroll(self, x, y): pass
+            def close(self): pass
+
+        async def exercise():
+            runtime = Runtime(script, dry_run=True)
+            runtime.backend = TimedBackend()
+            runtime.panic_key = None
+            runtime.pressed_keys.add("X")
+            task = asyncio.create_task(runtime._held_loop(script.events[0], "X", 0.01))
+            await asyncio.sleep(0.075)
+            runtime.pressed_keys.discard("X")
+            await task
+            return runtime.backend.downs
+
+        downs = asyncio.run(exercise())
+        self.assertGreaterEqual(len(downs), 5)
+        gaps = [later - earlier for earlier, later in zip(downs, downs[1:])]
+        # A 5ms tap inside a 10ms tick: sleeping the tap duration on top of the
+        # interval would make the period ~15ms instead of 10ms.
+        self.assertLess(median(gaps), 0.013)
+
     def test_rejects_unknown_top_level(self):
         with self.assertRaises(ParseError):
             parse('loom "bad" { cursor warp 1, 2 }')

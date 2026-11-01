@@ -8,6 +8,7 @@
 - Fallback output: direct `python-evdev` uinput device.
 - No Python code execution is embedded in `.loom` scripts.
 - Named mouse holds are reference-counted, so multiple hotkeys can safely hold one mouse button.
+- Optional key consumption: `consume key A` suppresses a key from reaching applications while keeping the rest of the keyboard working.
 
 ## Quick start
 
@@ -41,7 +42,7 @@ The package can also be installed from the included pure-Python wheel with `pyth
 - Press/hold **D**: warp to `(1080, 420)` and hold left mouse button.
 - Release **D**: release D's left-button hold.
 
-Change the four coordinates to your own desktop. If A and D overlap, the left mouse button remains held until **both** independent holds have been released. This avoids an early mouse-up when one key is released before the other. Physical A/D keystrokes are observed, not suppressed; they still reach the focused application.
+Change the four coordinates to your own desktop. If A and D overlap, the left mouse button remains held until **both** independent holds have been released. This avoids an early mouse-up when one key is released before the other. The example consumes A and D, so holding either key does not type into the focused application; remove those `consume key ...` lines if you want the keys to pass through. The panic key is never consumed.
 
 ## Wayland and Xwayland setup
 
@@ -144,7 +145,19 @@ loom "sample" {
 }
 ```
 
-Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` include `events`, `pointer`, `mouse`, `keyboard`, `desktop`, `flow`, and `functions`.
+Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` include `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, and `functions`.
+
+## Consuming keys
+
+`consume key A` keeps a key from reaching applications. It is a script-wide declaration, so place it in any event block; it takes effect at startup and swallows the key-down, autorepeat, and key-up. Keyloom grabs the physical keyboard exclusively and replays every other event through a virtual `uinput` device, so `/dev/uinput` must be writable and the panic key always passes through.
+
+```loom
+when key A goes down {
+    consume key A
+    cursor warp 304, 395
+    mouse left hold as spot_a
+}
+```
 
 ## API summary
 
@@ -154,6 +167,7 @@ Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` incl
 | Pointer | absolute warp, relative move, glide, center |
 | Mouse | hold/free/tap with independent tokens |
 | Keyboard | press/free/tap chords, text typing |
+| Consume | swallow keys with `consume key NAME` |
 | Desktop | wheel scrolling, clipboard read/write, notifications, opt-in app launch |
 | Flow | variables, expressions, if/else, repeat, while, wait, assert, log |
 | Functions | math, conversions, random values, elapsed time, key/button state, screen dimensions |
@@ -166,6 +180,7 @@ The language is intentionally constrained: it does not evaluate Python, execute 
 - `output = "ydotool"` uses ydotoold for buttons, keys and text. Pointer motion still uses a Keyloom absolute `uinput` device, because ydotool 1.0.x's `mousemove --absolute` first jumps to the top-left corner and only then applies relative deltas.
 - `output = "uinput"` creates an absolute pointer plus relative axes for buttons, keys, text and scroll. Some Wayland compositors may treat absolute uinput pointers differently; `ydotool` is still preferred for non-US keyboard layouts and Unicode text.
 - `scroll` injects wheel events through `/dev/uinput`, so both backends need that device to be writable.
+- `consume key NAME` also needs `/dev/uinput`: Keyloom grabs the physical keyboard and replays all non-consumed events through a virtual passthrough device. Without that replay, grabbing would make the whole keyboard unusable. The panic key is never consumed.
 - `type` via uinput uses a US keyboard mapping. ydotool is recommended for non-US layouts and Unicode text.
 - Input is event-device based; a compositor may lock input devices while in secure sessions or with special device access policies.
 

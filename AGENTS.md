@@ -73,6 +73,7 @@ Load it with `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript FI
 - The uinput text mapper covers US layout only. Add new shifted symbols to both `shifted` and `shifted_map`, and new plain symbols to `plain`.
 - `normalize_key_event()` reads `ecodes.KEY`; some codes map to lists of aliases, so take the first entry.
 - Avoid reacting to injected devices. `_open_keyboards()` drops names containing `keyloom`, `ydotool`, or `virtual pointer`.
+- Key consumption grabs the physical device with EVIOCGRAB and replays non-consumed events through `PassthroughDevice`. The passthrough mirrors `EV_KEY`, `EV_REL`, `EV_ABS`, and `EV_MSC` but deliberately not `EV_REP`, otherwise held keys would repeat twice. `consume` declarations are collected before devices are grabbed so the first key-down is swallowed, and the panic key is removed from the consumed set.
 
 ## Runtime traps
 

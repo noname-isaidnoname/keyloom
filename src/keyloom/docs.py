@@ -63,6 +63,7 @@ Actions
     key CTRL press                 # hold a key down
     key CTRL free                  # release a key
     key CTRL+S tap for 80ms        # press chord, then release in reverse order
+    consume key A                  # swallow A (including key-up and autorepeat)
     type "Hello from Keyloom"      # type text via selected output backend
     scroll 0, -3                   # vertical/horizontal wheel (needs /dev/uinput)
     wait 150ms
@@ -112,6 +113,11 @@ Safety and runtime behavior
 ---------------------------
 
 * The panic key defaults to PAUSE. Ctrl+C also stops the runtime.
+* `consume key NAME` is a script-wide declaration, not a per-event action: it
+  applies from startup no matter where it appears, so the first key-down can be
+  swallowed. Keyloom grabs the physical keyboard and replays every other event
+  through a virtual uinput device; this needs `/dev/uinput` write access and the
+  same device permissions as reading. The panic key is never consumed.
 * The runtime releases all held virtual buttons/keys on stop and on errors.
 * Named mouse hold tokens are reference-counted. Use a different token for
   each independent physical key if several bindings can hold the same button.
@@ -164,6 +170,7 @@ API_REFERENCE = {
     "pointer": ["cursor warp X, Y", "cursor move DX, DY", "cursor glide X, Y over DURATION", "cursor center"],
     "mouse": ["mouse BUTTON hold as TOKEN", "mouse BUTTON free as TOKEN", "mouse BUTTON tap [for DURATION]"],
     "keyboard": ["key KEY_OR_CHORD press", "key KEY_OR_CHORD free", "key KEY_OR_CHORD tap [for DURATION]", "type STRING"],
+    "input": ["consume key NAME"],
     "desktop": ["scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR", "launch EXPR (allow_launch=true required)"],
     "flow": ["set NAME = EXPR", "if EXPR { ... } else { ... }", "repeat EXPR { ... }", "while EXPR { ... }", "wait DURATION", "assert EXPR", "log EXPR"],
     "functions": ["min", "max", "abs", "round", "floor", "ceil", "sqrt", "clamp", "int", "float", "str", "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width", "screen_height"],

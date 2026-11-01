@@ -164,6 +164,123 @@ loom "numeric-keys" {
         self.assertEqual(script.events[0].args[:3], ("key", "1", "down"))
         self.assertEqual(script.events[0].body[0].args[0], "CTRL+1")
 
+    def test_parse_consume_key_statement(self):
+        script = parse('''
+loom "consume" {
+    when key A goes down {
+        consume key A
+    }
+}
+''')
+        node = script.events[0].body[0]
+        self.assertEqual(node.kind, "consume")
+        self.assertEqual(node.args, ("A",))
+
+    def test_consumed_keys_are_script_wide_and_panic_always_passes(self):
+        from keyloom.runtime import Runtime
+        script = parse('''
+loom "consume" {
+    option panic = "A"
+    when key A goes down { consume key A }
+    when key D goes down { consume key D }
+}
+''')
+        runtime = Runtime(script, dry_run=True)
+        runtime.panic_key = "A"
+        self.assertEqual(runtime._collect_consumed_keys(), {"D"})
+
+    def test_checker_warns_when_panic_key_is_consumed(self):
+        script = parse('''
+loom "consume" {
+    option panic = "A"
+    when key A goes down { consume key A }
+}
+''')
+        diagnostics = check_script(script)
+        self.assertFalse([d for d in diagnostics if d.level == "error"])
+        self.assertTrue(any("never consumed" in d.message for d in diagnostics))
+
+    def test_consumed_key_events_are_not_replayed(self):
+        import asyncio
+        from evdev import InputEvent, ecodes
+        from keyloom.runtime import Runtime
+        script = parse('loom "passthrough" { when timer every 1s { log "tick" } }')
+        runtime = Runtime(script, dry_run=True)
+        runtime.panic_key = None
+        runtime.consumed_keys = {"A"}
+
+        class FakeDevice:
+            path = "/dev/input/event99"
+            def __init__(self, events): self.events = events
+            async def async_read_loop(self):
+                for event in self.events:
+                    yield event
+            def ungrab(self): pass
+            def close(self): pass
+
+        class FakePassthrough:
+            def __init__(self): self.events = []
+            def write_event(self, event): self.events.append((event.type, event.code, event.value))
+            def close(self): pass
+
+        events = [
+            InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 1),
+            InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 2),
+            InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_B, 1),
+            InputEvent(0, 0, ecodes.EV_SYN, ecodes.SYN_REPORT, 0),
+            InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 0),
+            InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_B, 0),
+            InputEvent(0, 0, ecodes.EV_SYN, ecodes.SYN_REPORT, 0),
+        ]
+        passthrough = FakePassthrough()
+        asyncio.run(runtime._read_device(FakeDevice(events), passthrough))
+        self.assertEqual(
+            [event for event in passthrough.events if event[0] == ecodes.EV_KEY],
+            [
+                (ecodes.EV_KEY, ecodes.KEY_B, 1),
+                (ecodes.EV_KEY, ecodes.KEY_B, 0),
+            ],
+        )
+        self.assertEqual(
+            len([event for event in passthrough.events if event[0] == ecodes.EV_SYN]),
+            2,
+        )
+
+    def test_passthrough_releases_held_keys_on_close(self):
+        from evdev import InputEvent, ecodes
+        import keyloom.backends as backends
+
+        captured = {}
+
+        class FakeUI:
+            def __init__(self, events=None, name=None, phys=None):
+                captured["events"] = events
+                self.written = []
+            def write_event(self, event): self.written.append(("event", event.type, event.code, event.value))
+            def write(self, event_type, code, value): self.written.append(("write", event_type, code, value))
+            def syn(self): self.written.append(("syn",))
+            def close(self): self.written.append(("close",))
+
+        class FakeDevice:
+            def capabilities(self, absinfo=True):
+                return {ecodes.EV_KEY: [ecodes.KEY_A], ecodes.EV_ABS: [(ecodes.ABS_X, object())], ecodes.EV_SYN: []}
+
+        original = backends._uinput_factory
+        backends._uinput_factory = lambda: FakeUI
+        try:
+            passthrough = backends.PassthroughDevice(FakeDevice())
+            passthrough.write_event(InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 1))
+            passthrough.write_event(InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 0))
+            passthrough.write_event(InputEvent(0, 0, ecodes.EV_KEY, ecodes.KEY_A, 1))
+            passthrough.close()
+        finally:
+            backends._uinput_factory = original
+
+        self.assertIn(ecodes.EV_KEY, captured["events"])
+        self.assertNotIn(ecodes.EV_SYN, captured["events"])
+        self.assertIn(("write", ecodes.EV_KEY, ecodes.KEY_A, 0), passthrough.ui.written)
+        self.assertEqual(passthrough.ui.written[-1], ("close",))
+
     def test_absolute_axis_info_orders_min_before_max(self):
         from keyloom.backends import absolute_axis_info
         info = absolute_axis_info(1367)
@@ -246,7 +363,7 @@ loom "numeric-keys" {
         asyncio.run(exercise())
         self.assertEqual(
             [x for x in runtime.backend.actions if x[0] == "warp"],
-            [("warp", 640, 420), ("warp", 1080, 420)],
+            [("warp", 304, 395), ("warp", 940, 412)],
         )
         self.assertEqual(
             [x for x in runtime.backend.actions if x[0] == "button"],

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from .backends import (
-    BackendError, DryRunBackend, KEY_ALIASES, choose_backend,
+    BackendError, DryRunBackend, KEY_ALIASES, PassthroughDevice, choose_backend,
     key_code, normalize_key_event,
 )
 from .parser import Node, Script
@@ -112,6 +112,8 @@ class Runtime:
         self.stop_event = asyncio.Event()
         self.device_down: dict[str, set[str]] = {}
         self.pressed_keys: set[str] = set()
+        self.consumed_keys: set[str] = set()
+        self.devices: list = []
         self.held_tokens: dict[str, str] = {}
         self.button_refs: dict[str, int] = {}
         self.key_refs: dict[str, int] = {}
@@ -139,6 +141,7 @@ class Runtime:
         self._running = True
         panic = self.script.options.get("panic", "PAUSE")
         self.panic_key = canonical_key(str(panic)) if str(panic).lower() != "none" else None
+        self.consumed_keys = self._collect_consumed_keys()
         try:
             for event in self.script.events:
                 if event.args[0] == "app":
@@ -149,12 +152,22 @@ class Runtime:
             if not any(e.args[0] == "key" for e in self.script.events):
                 self._say("No key bindings found; timer/app events are active. Press the panic key or Ctrl+C to stop.")
             devices = self._open_keyboards()
+            self.devices = devices
             if not devices and any(e.args[0] == "key" for e in self.script.events):
                 raise RuntimeErrorKeyloom(self._input_permission_help())
             if devices:
+                passthroughs: dict[str, PassthroughDevice] = {}
+                if self.consumed_keys:
+                    keys = ", ".join(sorted(self.consumed_keys))
+                    if self.dry_run:
+                        self._say(f"Dry run: would consume key(s) {keys}; devices are not grabbed.")
+                    else:
+                        passthroughs = self._prepare_consumption(devices)
+                        panic_note = f"; panic key {self.panic_key} still passes through" if self.panic_key else ""
+                        self._say(f"Consuming key(s) {keys}{panic_note}.")
                 for device in devices:
                     self.device_down[device.path] = set()
-                    task = asyncio.create_task(self._read_device(device))
+                    task = asyncio.create_task(self._read_device(device, passthroughs.get(device.path)))
                     self.background_tasks.add(task)
                 names = ", ".join(f"{d.name} ({d.path})" for d in devices)
                 self._say(f"Listening on: {names}")
@@ -177,6 +190,10 @@ class Runtime:
             self._release_all_holds()
             if self.backend:
                 self.backend.close()
+            for device in self.devices:
+                try: device.close()
+                except Exception: pass
+            self.devices = []
             self._say("Stopped; held buttons and keys released.")
 
     def _open_keyboards(self):
@@ -210,10 +227,80 @@ class Runtime:
             "Use `keyloom --devices` to inspect permissions."
         )
 
-    async def _read_device(self, device) -> None:
+    def _collect_consumed_keys(self) -> set[str]:
+        found: set[str] = set()
+
+        def walk(nodes: list[Node]) -> None:
+            for node in nodes:
+                if node.kind == "consume":
+                    found.add(canonical_key(str(node.args[0])))
+                walk(node.body)
+                walk(node.otherwise)
+
+        for event in self.script.events:
+            walk(event.body)
+        panic_key = getattr(self, "panic_key", None)
+        if panic_key:
+            # The panic key must always reach the desktop so a script can be
+            # stopped even if it accidentally tries to consume that key.
+            found.discard(panic_key)
+        return found
+
+    def _prepare_consumption(self, devices) -> dict[str, PassthroughDevice]:
+        by_path = {device.path: device for device in devices}
+        prepared: dict[str, PassthroughDevice] = {}
+        try:
+            for device in devices:
+                try:
+                    passthrough = PassthroughDevice(device)
+                except Exception as exc:
+                    raise RuntimeErrorKeyloom(
+                        "Cannot consume keys: Keyloom needs write access to /dev/uinput "
+                        f"to replay non-consumed input. Details: {exc}"
+                    ) from exc
+                try:
+                    device.grab()
+                except OSError as exc:
+                    passthrough.close()
+                    raise RuntimeErrorKeyloom(
+                        f"Cannot grab input device {device.path} ({device.name}) for key "
+                        "consumption; another program may already be grabbing it or your "
+                        f"user lacks device access. Details: {exc}"
+                    ) from exc
+                prepared[device.path] = passthrough
+        except Exception:
+            for path, passthrough in list(prepared.items()):
+                try: by_path[path].ungrab()
+                except (OSError, AttributeError): pass
+                passthrough.close()
+            raise
+        return prepared
+
+    def _is_consumed_key_event(self, event) -> bool:
+        from evdev import ecodes
+        if event.type != ecodes.EV_KEY:
+            return False
+        name = normalize_key_event(event.code)
+        if not name:
+            return False
+        key = canonical_key(name)
+        panic_key = getattr(self, "panic_key", None)
+        if panic_key and key == panic_key:
+            return False
+        return key in self.consumed_keys
+
+    async def _read_device(self, device, passthrough: PassthroughDevice | None = None) -> None:
         from evdev import ecodes
         try:
             async for event in device.async_read_loop():
+                if passthrough is not None and not self._is_consumed_key_event(event):
+                    try:
+                        passthrough.write_event(event)
+                    except OSError as exc:
+                        self.runtime_error = f"input passthrough failed for {device.path}: {exc}"
+                        self._say(self.runtime_error)
+                        self.stop_event.set()
+                        return
                 if event.type != ecodes.EV_KEY or event.value == 2:
                     continue
                 name = normalize_key_event(event.code)
@@ -229,6 +316,11 @@ class Runtime:
             self._say(f"Input device {device.path} disconnected: {exc}")
         finally:
             released = list(self.device_down.pop(device.path, set()))
+            try: device.ungrab()
+            except (OSError, AttributeError): pass
+            if passthrough is not None:
+                try: passthrough.close()
+                except Exception: pass
             device.close()
             for key in released:
                 still_down = any(key in keys for keys in self.device_down.values())
@@ -367,6 +459,11 @@ class Runtime:
                 try: await asyncio.sleep(float(duration) if duration is not None else 0.06)
                 finally:
                     for name in reversed(names): self._free_key(name)
+        elif kind == "consume":
+            # Consumption is collected before devices are grabbed, so the very
+            # first key-down can be swallowed. The declaration itself has no
+            # per-event effect here.
+            pass
         elif kind == "type":
             self.backend.type_text(str(self._eval(args[0])))
         elif kind == "wait":

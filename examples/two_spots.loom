@@ -1,5 +1,6 @@
 # Hold A to hold the left mouse button at spot A.
 # Hold D to hold the left mouse button at spot D.
+# A and D are consumed, so they do not type into the focused application.
 # Change the coordinates to match your desktop. Press X to stop Keyloom.
 loom "two-spots" {
     option input = "evdev"
@@ -8,6 +9,7 @@ loom "two-spots" {
     option screen = "auto"
 
     when key A goes down {
+        consume key A
         cursor warp 304, 395
         mouse left hold as spot_a
     }
@@ -17,6 +19,7 @@ loom "two-spots" {
     }
 
     when key D goes down {
+        consume key D
         cursor warp 940, 412
         mouse left hold as spot_d
     }

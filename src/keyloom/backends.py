@@ -320,6 +320,65 @@ class UInputBackend:
         self.ui.close()
 
 
+def _uinput_factory():
+    from evdev import UInput
+    return UInput
+
+
+class PassthroughDevice:
+    """Replay physical input through uinput, minus the keys Keyloom consumes.
+
+    To keep a key from reaching applications, Keyloom grabs the whole physical
+    device. That also hides every other key on it, so this virtual device
+    mirrors non-consumed events back into the input subsystem.
+    """
+
+    SUPPORTED_TYPES = ("EV_KEY", "EV_REL", "EV_ABS", "EV_MSC")
+
+    def __init__(self, device, *, name: str = "Keyloom passthrough"):
+        from evdev import ecodes
+        self.ec = ecodes
+        supported = {getattr(ecodes, type_name) for type_name in self.SUPPORTED_TYPES}
+        capabilities = {
+            event_type: codes
+            for event_type, codes in device.capabilities(absinfo=True).items()
+            if event_type in supported
+        }
+        # A keyboard without any key codes would make UInput fall back to its
+        # default "all keys" device, so keep the explicit empty capability.
+        capabilities.setdefault(ecodes.EV_KEY, [])
+        self.ui = _uinput_factory()(
+            events=capabilities, name=name, phys="keyloom/passthrough"
+        )
+        self.down_keys: set[int] = set()
+
+    def write_event(self, event) -> None:
+        if event.type == self.ec.EV_KEY:
+            if event.value == 1:
+                self.down_keys.add(event.code)
+            elif event.value == 0:
+                self.down_keys.discard(event.code)
+        self.ui.write_event(event)
+
+    def close(self) -> None:
+        # Release anything still held so a grabbed key cannot stay stuck after
+        # the runtime stops.
+        for code in list(self.down_keys):
+            try:
+                self.ui.write(self.ec.EV_KEY, code, 0)
+            except OSError:
+                pass
+        self.down_keys.clear()
+        try:
+            self.ui.syn()
+        except OSError:
+            pass
+        try:
+            self.ui.close()
+        except Exception:
+            pass
+
+
 class DryRunBackend:
     def _log(self, action: str) -> None:
         print(f"[dry-run] {action}")

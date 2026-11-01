@@ -80,12 +80,28 @@ def check_script(script: Script) -> list[Diagnostic]:
                     for part in chord.split("+"): validate_key_name(part)
                 except BackendError as exc:
                     out.append(Diagnostic("error", str(exc), node.line))
-    needs_uinput = any(
+            elif node.kind == "consume":
+                key_name = node.args[0]
+                try: validate_key_name(key_name)
+                except BackendError as exc: out.append(Diagnostic("error", str(exc), node.line))
+                if panic_key and canonical_key_name(key_name) == panic_key:
+                    out.append(Diagnostic(
+                        "warning",
+                        f"Key {key_name} is the panic key and is never consumed; it always passes through",
+                        node.line,
+                    ))
+    needs_pointer = any(
         node.kind in ("cursor", "scroll")
         for event in script.events for node in _walk(event.body)
     )
-    if needs_uinput and not os.access("/dev/uinput", os.W_OK):
+    needs_passthrough = any(
+        node.kind == "consume"
+        for event in script.events for node in _walk(event.body)
+    )
+    if needs_pointer and not os.access("/dev/uinput", os.W_OK):
         out.append(Diagnostic("warning", "cursor motion and scrolling require write access to /dev/uinput on this machine"))
+    if needs_passthrough and not os.access("/dev/uinput", os.W_OK):
+        out.append(Diagnostic("warning", "key consumption needs write access to /dev/uinput to replay non-consumed input"))
     for token in sorted(held - freed):
         out.append(Diagnostic("warning", f"Mouse hold token {token!r} is never freed; runtime safety cleanup will release it"))
     for token in sorted(freed - held):

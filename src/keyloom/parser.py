@@ -202,6 +202,11 @@ class Parser:
                 duration = self.parse_duration()
             self.end_statement()
             return Node("key", (key_name, action, duration), line=tok.line)
+        if self.accept("consume"):
+            self.expect("key")
+            key_name = self.parse_key_name()
+            self.end_statement()
+            return Node("consume", (key_name,), line=tok.line)
         if self.accept("type"):
             value = self.parse_expr(); self.end_statement()
             return Node("type", (value,), line=tok.line)

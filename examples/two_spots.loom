@@ -1,0 +1,27 @@
+# Hold A to hold the left mouse button at spot A.
+# Hold D to hold the left mouse button at spot D.
+# Change the coordinates to match your desktop. Press PAUSE to stop Keyloom.
+loom "two-spots" {
+    option input = "evdev"
+    option output = "auto"
+    option panic = "PAUSE"
+    option screen = "auto"
+
+    when key A goes down {
+        cursor warp 640, 420
+        mouse left hold as spot_a
+    }
+
+    when key A goes up {
+        mouse left free as spot_a
+    }
+
+    when key D goes down {
+        cursor warp 1080, 420
+        mouse left hold as spot_d
+    }
+
+    when key D goes up {
+        mouse left free as spot_d
+    }
+}

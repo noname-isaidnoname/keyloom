@@ -1,0 +1,22 @@
+loom "basic-demo" {
+    option output = "auto"
+    option panic = "PAUSE"
+
+    when app starts {
+        log "Keyloom is ready. F8 prints a message."
+    }
+
+    when key F8 goes down {
+        notify "F8 reached Keyloom"
+        log "pressed F8"
+    }
+
+    when key F8 goes up {
+        log "released F8"
+    }
+
+    when key F9 goes down {
+        cursor center
+        mouse left tap for 90ms
+    }
+}

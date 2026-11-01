@@ -1,0 +1,3 @@
+include README.md LICENSE requirements.txt
+recursive-include examples *.loom
+recursive-include scripts *.sh

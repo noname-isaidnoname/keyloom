@@ -2,7 +2,7 @@
 
 Keyloom is a Linux-first desktop automation language. A `.loom` file is parsed, statically checked, and run by a native C++20 runtime built on one epoll-based event loop (`src/scheduler.cpp`). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`; output goes through `ydotool`/`ydotoold` or a direct `uinput` device written with plain `input_event` structures. The language never evaluates code or shell strings. `launch` is opt-in and uses an argv vector with no shell.
 
-This repo is the C++ port. The original Python implementation lives at `/home/fesuoy/Desktop/Stuff/Python/keyloom` and is the behavioral reference; the two should produce identical diagnostics and runtime behavior.
+This repo is the C++ port. The original Python implementation lives at `/home/fesuoy/Desktop/Stuff/Python/keyloom` and is the behavioral reference; the two should produce identical diagnostics and runtime behavior **unless** the C++ port has improvements/features over the original.
 
 User docs: `README.md`. Language reference: `keyloom --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 

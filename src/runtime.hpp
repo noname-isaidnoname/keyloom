@@ -99,6 +99,11 @@ private:
     Task safe_dispatch(const Node& event, std::string key, std::string edge);
     Task execute_nodes(const std::vector<Node>& nodes, const EventContext& context);
     Task execute(const Node& node, const EventContext& context);
+    void send_string(const std::string& text);
+    void send_target(const std::vector<std::string>& names, const std::vector<std::string>& active_modifiers,
+                     const std::vector<std::string>& pending_modifiers, bool add_shift);
+    void send_char(char c, const std::vector<std::string>& active_modifiers,
+                   const std::vector<std::string>& pending_modifiers);
     Task glide(int x, int y, double duration);
     Task timer_loop(const Node& event, double interval);
     Task signal_loop(int fd);

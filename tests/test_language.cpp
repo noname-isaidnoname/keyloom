@@ -273,6 +273,19 @@ TEST_CASE(static_check_rejects_spaced_remap_syntax) {
                  ParseError);
 }
 
+TEST_CASE(parses_send_statements) {
+    const Script script = parse(R"LOOM(
+loom "send-statement" {
+    when app starts {
+        send "hello{enter}"
+    }
+}
+)LOOM");
+    const Node& node = script.events.at(0).body.at(0);
+    CHECK_EQ(node.kind_name(), std::string("send"));
+    CHECK_EQ(node.exprs.size(), static_cast<size_t>(1));
+}
+
 TEST_CASE(parses_consume_statements) {
     const Script script = parse(R"LOOM(
 loom "consume" {

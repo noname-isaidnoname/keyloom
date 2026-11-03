@@ -283,6 +283,12 @@ private:
             end_statement();
             return node;
         }
+        if (accept("send")) {
+            node.stmt = StmtKind::Send;
+            node.exprs.push_back(parse_expr());
+            end_statement();
+            return node;
+        }
         if (accept("type")) {
             node.stmt = StmtKind::Type;
             node.exprs.push_back(parse_expr());

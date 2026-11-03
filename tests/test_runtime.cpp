@@ -252,6 +252,45 @@ loom "consume" {
     CHECK_TRUE(consumed.count("D") == 1);
 }
 
+std::vector<std::string> run_send_script(const std::string& statement) {
+    const Script script = parse("loom \"send-test\" { when app starts { " + statement + " } }");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
+    runtime.scheduler().run();
+    return raw->log;
+}
+
+TEST_CASE(send_types_text_and_special_tokens) {
+    CHECK_EQ(run_send_script("send \"a{TAB}{ENTER}\""),
+             std::vector<std::string>({"type a", "key TAB down", "key TAB up", "key ENTER down",
+                                       "key ENTER up"}));
+}
+
+TEST_CASE(send_prefixes_chords_for_modifiers) {
+    CHECK_EQ(run_send_script("send \"^c!{TAB}\""),
+             std::vector<std::string>({"key LEFTCTRL down", "key C down", "key C up", "key LEFTCTRL up",
+                                       "key LEFTALT down", "key TAB down", "key TAB up", "key LEFTALT up"}));
+}
+
+TEST_CASE(send_tokens_keep_explicit_modifier_holds) {
+    CHECK_EQ(run_send_script("send \"{CTRL down}a{TAB}{CTRL up}\""),
+             std::vector<std::string>({"key LEFTCTRL down", "key A down", "key A up", "key TAB down",
+                                       "key TAB up", "key LEFTCTRL up"}));
+}
+
+TEST_CASE(send_repeat_tokens_and_escaped_braces) {
+    CHECK_EQ(run_send_script("send \"{TAB 2}\""),
+             std::vector<std::string>({"key TAB down", "key TAB up", "key TAB down", "key TAB up"}));
+    CHECK_EQ(run_send_script("send \"{{}\""),
+             std::vector<std::string>({"key LEFTSHIFT down", "key LEFTBRACE down", "key LEFTBRACE up",
+                                       "key LEFTSHIFT up"}));
+}
+
 TEST_CASE(remap_key_holds_and_releases_target) {
     const Script script = parse(R"LOOM(
 loom "remap" {

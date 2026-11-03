@@ -1,0 +1,49 @@
+#pragma once
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "uinput.hpp"
+
+namespace keyloom {
+
+/// A physical /dev/input/eventN device.
+class InputDevice {
+public:
+    /// Open a device; returns null when it cannot be opened or read.
+    static std::unique_ptr<InputDevice> open(const std::string& path);
+
+    ~InputDevice();
+    InputDevice(const InputDevice&) = delete;
+    InputDevice& operator=(const InputDevice&) = delete;
+
+    const std::string& path() const { return path_; }
+    const std::string& name() const { return name_; }
+    int fd() const { return fd_; }
+
+    /// Keyboard-ish device: it can produce A and either Enter or Space.
+    bool is_keyboard() const;
+    /// Narrower test used by `--devices` (A and Enter).
+    bool is_keyboard_device() const;
+
+    const DeviceCapabilities& capabilities() const { return capabilities_; }
+
+    void grab();
+    void ungrab();
+    void close();
+
+private:
+    InputDevice(int fd, std::string path, std::string name, DeviceCapabilities capabilities);
+
+    int fd_ = -1;
+    std::string path_;
+    std::string name_;
+    DeviceCapabilities capabilities_;
+    bool grabbed_ = false;
+};
+
+/// /dev/input/event* paths in sorted order.
+std::vector<std::string> list_input_devices();
+
+}  // namespace keyloom

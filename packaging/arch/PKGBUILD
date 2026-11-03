@@ -1,0 +1,77 @@
+# Maintainer: Keyloom contributors
+#
+# Builds and installs keyloom from a local checkout of this repository; no
+# release tarball or network access is involved. Run:
+#
+#     cd packaging/arch
+#     makepkg -si
+#
+# The source is whatever the checkout contains, committed or not, so this is
+# also the way to package work in progress. To publish the package, point
+# _keyloom_source_dir at a published source instead of the checkout.
+
+pkgname=keyloom
+# Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
+pkgver=0.2.0
+pkgrel=1
+pkgdesc='Linux-first desktop automation language and runtime'
+arch=(x86_64 aarch64)
+license=(MIT)
+# The runtime links X11 and libpng for the --get-mouse-pos picker; no other
+# library dependencies.
+depends=(
+    glibc
+    gcc-libs
+    libx11
+    libpng
+)
+makedepends=(
+    'cmake>=3.25'
+    ninja
+    pkgconf
+)
+# ydotool/ydotoold is the preferred output backend for keys, buttons and
+# Unicode text. The rest are only needed by specific features: the picker
+# captures the desktop with one of the screenshot tools, and clipboard
+# integration uses wl-copy/wl-paste or xclip/xsel.
+optdepends=(
+    'ydotool: buttons, keys and Unicode text via ydotoold (preferred output backend)'
+    'spectacle: desktop screenshot for --get-mouse-pos (KDE)'
+    'grim: desktop screenshot for --get-mouse-pos (wlroots)'
+    'gnome-screenshot: desktop screenshot for --get-mouse-pos (GNOME)'
+    'scrot: desktop screenshot for --get-mouse-pos'
+    'imagemagick: ImageMagick import as a screenshot fallback for --get-mouse-pos'
+    'wl-clipboard: clipboard read/write on Wayland'
+    'xclip: clipboard read/write on X11'
+    'xsel: clipboard read/write on X11'
+    'libnotify: notify-send notifications'
+)
+source=()
+sha256sums=()
+
+_keyloom_source_dir="${KEYLOOM_SOURCE_DIR:-${startdir}/../..}"
+
+prepare() {
+    [[ -f "${_keyloom_source_dir}/CMakeLists.txt" ]] ||
+        error 'run makepkg from a complete keyloom checkout'
+}
+
+build() {
+    cmake -S "${_keyloom_source_dir}" -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_BINDIR=bin \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DBUILD_TESTING=ON
+    cmake --build build
+}
+
+check() {
+    ctest --test-dir build --output-on-failure
+}
+
+package() {
+    DESTDIR="${pkgdir}" cmake --install build
+    install -Dm644 "${_keyloom_source_dir}/LICENSE" \
+        "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+}

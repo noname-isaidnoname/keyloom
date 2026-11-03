@@ -1,37 +1,65 @@
 # Keyloom
 
-**Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is designed for Xorg, Xwayland and native Wayland sessions.
+**Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is a native C++20 binary with no runtime dependencies beyond the C++ standard library and X11/libpng (used by the mouse-position picker). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`. It is designed for Xorg, Xwayland and native Wayland sessions.
 
-- Global physical keyboard input: `python-evdev` (`/dev/input/event*`).
+- Global physical keyboard input: evdev ioctls on `/dev/input/event*`.
 - Preferred keyboard/button output: `ydotool` + `ydotoold` (uinput-based and Wayland-friendly).
 - Pointer motion uses Keyloom's own absolute `uinput` device, because ydotool 1.0.x's `mousemove --absolute` jumps to the top-left corner first.
-- Fallback output: direct `python-evdev` uinput device.
-- No Python code execution is embedded in `.loom` scripts.
+- Fallback output: a direct absolute/relative `uinput` device, written with plain `input_event` structures.
+- No code execution is embedded in `.loom` scripts, and the language never spawns a shell.
 - Named mouse holds are reference-counted, so multiple hotkeys can safely hold one mouse button.
 - Optional key consumption: `consume key A` suppresses a key from reaching applications while keeping the rest of the keyboard working.
 
+The runtime drives devices, timers and dispatch from a single epoll-based event loop; output uinput reports are batched into one write per report. There is no interpreter in the hot path.
+
 ## Quick start
 
-Python 3.11+ is required. Activate the environment you want Keyloom in first; the installer never creates one.
+You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, X11 and libpng development headers. Debian/Ubuntu:
 
 ```bash
-python3 -m venv .venv          # or: uv venv
-source .venv/bin/activate
-./scripts/install.sh
+sudo apt install cmake ninja-build pkg-config libx11-dev libpng-dev
+```
+
+Arch:
+
+```bash
+sudo pacman -S cmake ninja pkgconf libx11 libpng
+```
+
+Build and install:
+
+```bash
+./scripts/install.sh                     # installs into /usr/local
+PREFIX="$HOME/.local" ./scripts/install.sh   # or into your own prefix
 keyloom --init my-first-script
 keyloom --check my-first-script.loom
 keyloom --docs
 ```
 
-`scripts/install.sh` installs editable into `$VIRTUAL_ENV` (or `$CONDA_PREFIX`, `$UV_PROJECT_ENVIRONMENT`, an existing `./.venv`, or an interpreter passed with `PYTHON=/path/to/venv/bin/python`). It uses `uv pip` when `uv` is available, because uv-created environments normally have no `pip`. It refuses the system Python unless `KEYLOOM_ALLOW_SYSTEM_PYTHON=1` is set.
+`scripts/install.sh` checks the build dependencies, builds with the `release` preset and runs `cmake --install`. It never uses sudo; pass `PREFIX` to install somewhere writable.
+
+On Arch-based distributions you can build and install a native package instead:
+
+```bash
+cd packaging/arch
+makepkg -si          # builds, runs the test suite, and installs keyloom
+```
+
+`make` at the repository root is a thin wrapper around the same CMake build, and `make install` / `make package` cover both paths above.
+
+To build without installing:
+
+```bash
+cmake --preset release
+cmake --build build/release
+./build/release/keyloom --check examples/two_spots.loom
+```
 
 To run a script:
 
 ```bash
 keyloom --run examples/two_spots.loom
 ```
-
-The package can also be installed from the included pure-Python wheel with `python -m pip install dist/keyloom-0.1.0-py3-none-any.whl`, or installed editable in a development environment with `python -m pip install -e .`; afterward the `keyloom` command is available on `PATH`.
 
 ## The requested A/D hold script
 
@@ -56,7 +84,7 @@ Debian/Ubuntu example:
 sudo apt install ydotool
 ```
 
-Install the Python dependency through Keyloom's venv installer:
+Build and install Keyloom:
 
 ```bash
 ./scripts/install.sh
@@ -104,7 +132,7 @@ To pick coordinates from the desktop instead of guessing, run:
 keyloom --get-mouse-pos
 ```
 
-A tooltip follows the pointer and shows the current `x, y`. Left-click consumes the click, prints the position (for example `640, 420`) and exits. Right-click cancels; `Esc` also works while the overlay has keyboard focus. The picker first captures the desktop with `spectacle` (KDE), `grim`, `gnome-screenshot`, `scrot`, or ImageMagick's `import`, then shows that still image full-screen in an XWayland overlay. The desktop stays visible and the click does not reach the window underneath; the real cursor and live tooltip are drawn on top. It needs `tkinter` (usually `python3-tk`) and a screenshot tool, but not evdev or `/dev/uinput` permissions.
+A tooltip follows the pointer and shows the current `x, y`. Left-click consumes the click, prints the position (for example `640, 420`) and exits. Right-click cancels; `Esc` also works while the overlay has keyboard focus. The picker first captures the desktop with `spectacle` (KDE), `grim`, `gnome-screenshot`, `scrot`, or ImageMagick's `import`, then shows that still image full-screen in an XWayland overlay. The desktop stays visible and the click does not reach the window underneath; the real cursor and live tooltip are drawn on top. The picker needs X11 (with XWayland on Wayland sessions) and a screenshot tool, but not evdev or `/dev/uinput` permissions.
 
 ## CLI reference
 
@@ -172,7 +200,7 @@ when key A goes down {
 | Flow | variables, expressions, if/else, repeat, while, wait, assert, log |
 | Functions | math, conversions, random values, elapsed time, key/button state, screen dimensions |
 
-The language is intentionally constrained: it does not evaluate Python, execute shell strings, or expose an arbitrary shell statement. `launch` is disabled unless `option allow_launch = true` is set; it uses `subprocess.Popen` with a tokenized argument vector and no shell.
+The language is intentionally constrained: it does not evaluate arbitrary code, execute shell strings, or expose an arbitrary shell statement. `launch` is disabled unless `option allow_launch = true` is set; it uses an argument vector and no shell.
 
 ## Backend notes
 
@@ -187,10 +215,17 @@ The language is intentionally constrained: it does not evaluate Python, execute 
 ## Development
 
 ```bash
-python -m unittest discover -s tests -v
+make                      # configure, build (Release) and run the test suite
+make build                # build Release only, no test suite
+make test                 # or: ctest --preset release / ./build/release/keyloom_tests
+make debug                # Debug preset
+make package              # Arch: build the package with makepkg
+make clean                # delete the build directory
 ```
 
-Architecture: `lexer.py` → `parser.py` → `checker.py` → `runtime.py`; output drivers implement the protocol in `backends.py`. Add parser node kinds and runtime handlers to extend the language, and register new drivers in `choose_backend()`.
+Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`; output drivers implement the `OutputBackend` interface in `src/backends.hpp`. All devices, timers and dispatches are driven by one epoll-based scheduler (`src/scheduler.cpp`). Add parser node kinds and runtime handlers to extend the language, and register new drivers in `choose_backend()`. The mouse-position picker (`--get-mouse-pos`) lives in `src/mousepos.cpp` and needs only X11 and a screenshot tool.
+
+User-visible behavior changes should update this README and `src/docs.cpp` (the `keyloom --docs` guide and `API_REFERENCE`) together.
 
 ## License
 

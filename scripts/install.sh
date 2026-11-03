@@ -2,76 +2,60 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Install into an existing environment. This script never creates a venv:
-# activate the environment you want first (that is how uv users usually run),
-# or point PYTHON at its interpreter.
+# Build and install the keyloom binary.
+#
+#   ./scripts/install.sh                 # build (release) and install
+#   PREFIX="$HOME/.local" ./scripts/install.sh
+#
+# The prefix defaults to /usr/local. Pass PREFIX to install elsewhere; no
+# root or sudo is attempted automatically.
 
-python_bin=""
-if [[ -n "${PYTHON:-}" ]]; then
-    python_bin="$PYTHON"
-elif [[ -n "${VIRTUAL_ENV:-}" && -x "${VIRTUAL_ENV}/bin/python" ]]; then
-    python_bin="${VIRTUAL_ENV}/bin/python"
-elif [[ -n "${CONDA_PREFIX:-}" && -x "${CONDA_PREFIX}/bin/python" ]]; then
-    python_bin="${CONDA_PREFIX}/bin/python"
-elif [[ -n "${UV_PROJECT_ENVIRONMENT:-}" && -x "${UV_PROJECT_ENVIRONMENT}/bin/python" ]]; then
-    python_bin="${UV_PROJECT_ENVIRONMENT}/bin/python"
-elif [[ -x ".venv/bin/python" ]]; then
-    python_bin="$PWD/.venv/bin/python"
-elif command -v python3 >/dev/null 2>&1 && \
-     python3 -c 'import sys; raise SystemExit(0 if sys.prefix != sys.base_prefix else 1)' 2>/dev/null; then
-    python_bin="$(command -v python3)"
-fi
+PREFIX="${PREFIX:-/usr/local}"
+BUILD_DIR="build/release"
 
-if [[ -z "$python_bin" ]]; then
-    cat >&2 <<'EOF'
-No virtual environment was found.
+missing=()
+for tool in cmake ninja pkg-config; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+if ! pkg-config --exists x11 2>/dev/null; then missing+=("libx11-dev (x11)"); fi
+if ! pkg-config --exists libpng 2>/dev/null; then missing+=("libpng-dev (libpng)"); fi
+if (( ${#missing[@]} )); then
+    cat >&2 <<EOF
+Missing build dependencies: ${missing[*]}
 
-Activate the environment you want Keyloom installed in, then rerun this script:
-    source /path/to/venv/bin/activate
-    ./scripts/install.sh
+Debian/Ubuntu:
+    sudo apt install cmake ninja-build pkg-config libx11-dev libpng-dev
+Arch:
+    sudo pacman -S cmake ninja pkgconf libx11 libpng
 
-Or point it at that environment's interpreter explicitly:
-    PYTHON=/path/to/venv/bin/python ./scripts/install.sh
-
-Keyloom no longer creates .venv for you.
+Runtime (not needed to build): ydotool + ydotoold, or a writable /dev/uinput.
 EOF
     exit 2
 fi
 
-# Allow PYTHON=python3 as well as a path.
-if [[ "$python_bin" != */* ]]; then
-    python_bin="$(command -v "$python_bin" || true)"
+if [[ ! -d "$PREFIX" ]] && ! mkdir -p "$PREFIX" 2>/dev/null; then
+    printf 'Prefix %s does not exist and could not be created.\n' "$PREFIX" >&2
+    printf 'Install into your own prefix instead:\n    PREFIX="$HOME/.local" ./scripts/install.sh\n' >&2
+    exit 2
 fi
-if [[ -z "$python_bin" || ! -x "$python_bin" ]]; then
-    printf 'Not an executable Python interpreter: %s\n' "${python_bin:-<empty>}" >&2
+if [[ ! -w "$PREFIX" ]]; then
+    printf 'Prefix %s is not writable by %s.\n' "$PREFIX" "$USER" >&2
+    printf 'Install into your own prefix instead:\n    PREFIX="$HOME/.local" ./scripts/install.sh\n' >&2
     exit 2
 fi
 
-# Never silently install into the distro Python's site-packages.
-if ! "$python_bin" -c 'import sys; raise SystemExit(0 if sys.prefix != sys.base_prefix else 1)' 2>/dev/null; then
-    if [[ "${KEYLOOM_ALLOW_SYSTEM_PYTHON:-}" != "1" ]]; then
-        printf 'Refusing to install into the system Python: %s\n' "$python_bin" >&2
-        printf 'Activate a virtual environment first, or set KEYLOOM_ALLOW_SYSTEM_PYTHON=1 to override.\n' >&2
-        exit 2
-    fi
-fi
+echo "Configuring (release)..."
+cmake --preset release -DBUILD_TESTING=OFF >/dev/null
+echo "Building..."
+cmake --build "$BUILD_DIR" -j"$(nproc)"
+echo "Installing into $PREFIX..."
+cmake --install "$BUILD_DIR" --prefix "$PREFIX"
 
-# uv-created environments usually have no pip, so prefer uv when it is available.
-if command -v uv >/dev/null 2>&1; then
-    uv pip install --python "$python_bin" -e .
-else
-    if ! "$python_bin" -m pip --version >/dev/null 2>&1; then
-        "$python_bin" -m ensurepip --upgrade >/dev/null 2>&1 || true
-    fi
-    if ! "$python_bin" -m pip --version >/dev/null 2>&1; then
-        printf 'pip is not available in %s. Install pip there, or install uv and rerun.\n' "$python_bin" >&2
-        exit 2
-    fi
-    "$python_bin" -m pip install --upgrade pip
-    "$python_bin" -m pip install -e .
-fi
-
-bin_dir="$(dirname "$python_bin")"
-printf '\nKeyloom installed into %s\n' "$python_bin"
-printf 'Try: %s --check examples/two_spots.loom\n' "$bin_dir/keyloom"
-printf 'Run: %s --run examples/two_spots.loom\n' "$bin_dir/keyloom"
+bin_dir="$PREFIX/bin"
+printf '\nKeyloom installed to %s/keyloom\n' "$bin_dir"
+case ":$PATH:" in
+    *":$bin_dir:"*) ;;
+    *) printf 'Note: %s is not on your PATH.\n' "$bin_dir" ;;
+esac
+printf 'Try: keyloom --check examples/two_spots.loom\n'
+printf 'Run: keyloom --run examples/two_spots.loom\n'

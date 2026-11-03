@@ -1,7 +1,15 @@
-from __future__ import annotations
+#include "docs.hpp"
 
-DOCS = r'''
-KEYLOOM LANGUAGE GUIDE
+#include <cctype>
+#include <string>
+#include <vector>
+
+#include "value.hpp"
+
+namespace keyloom {
+namespace {
+
+const char* const kGuide = R"DOC(KEYLOOM LANGUAGE GUIDE
 ======================
 
 Keyloom is a Linux desktop automation language. A .loom file is parsed and
@@ -134,14 +142,15 @@ Safety and runtime behavior
   gnome-screenshot, scrot, or ImageMagick import, then shows that still image
   full-screen in an XWayland overlay with a live coordinate tooltip. Left-click
   consumes the click, prints `x, y`, and exits; right-click cancels (Esc works
-  when the overlay has focus). It needs tkinter and a screenshot tool, not evdev
+  when the overlay has focus). It needs X11 and a screenshot tool, not evdev
   or /dev/uinput permissions.
-* `--doctor` reports evdev, ydotool, uinput, Wayland/X11 and screen prerequisites.
+* `--doctor` reports input devices, ydotool, uinput, X11/Wayland and screen
+  prerequisites.
 
 Linux backends
 --------------
 
-Input uses python-evdev and reads physical devices from /dev/input/event*. This
+Input reads physical devices from /dev/input/event* with evdev ioctls. This
 works under Xorg, Xwayland, and Wayland because it is below the compositor; the
 user needs permission to read the intended input devices. Prefer a udev rule or
 an `input` group membership over running the program as root.
@@ -151,43 +160,98 @@ backend for keyboard output. ydotool 1.0.x's `mousemove --absolute` is not a
 real absolute warp (it jumps to the top-left first), so Keyloom uses its own
 absolute `uinput` pointer for `cursor warp`, `cursor move` and `scroll`.
 Start `ydotoold` in your user session and make sure `/dev/uinput` is writable.
-The `uinput` backend is a direct python-evdev fallback for everything;
-ABS_X/ABS_Y pointer mapping is compositor-dependent. Multi-monitor layouts and
-fractional scaling can change coordinate interpretation.
+The `uinput` backend writes input_event structures straight to /dev/uinput for
+everything; ABS_X/ABS_Y pointer mapping is compositor-dependent. Multi-monitor
+layouts and fractional scaling can change coordinate interpretation.
 
 API extension points
 --------------------
 
 The runtime is split into a lexer, parser, static checker, input listener,
-and an OutputBackend protocol. Add an output driver by implementing warp,
+and an OutputBackend interface. Add an output driver by implementing warp,
 move, button, key, type_text, scroll, and close, then register it in
-backends.choose_backend(). New language statements are represented as Node
-kinds in parser.py and handled in Runtime._execute(). Expression built-ins are
-registered in Runtime._eval(). This keeps integrations isolated from parsing.
-'''.strip()
+backends::choose_backend(). New language statements are represented as Node
+kinds in src/parser.cpp and handled in Runtime::execute(). Expression built-ins
+are registered in Runtime::eval(). This keeps integrations isolated from parsing.
 
-API_REFERENCE = {
-    "events": [
-        "when key NAME goes down", "when key NAME goes up",
-        "when key NAME stays held every DURATION", "when timer every DURATION",
-        "when app starts",
-    ],
-    "pointer": ["cursor warp X, Y", "cursor move DX, DY", "cursor glide X, Y over DURATION", "cursor center"],
-    "mouse": ["mouse BUTTON hold as TOKEN", "mouse BUTTON free as TOKEN", "mouse BUTTON tap [for DURATION]"],
-    "keyboard": ["key KEY_OR_CHORD press", "key KEY_OR_CHORD free", "key KEY_OR_CHORD tap [for DURATION]", "type STRING"],
-    "input": ["consume key NAME"],
-    "desktop": ["scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR", "launch EXPR (allow_launch=true required)"],
-    "flow": ["set NAME = EXPR", "if EXPR { ... } else { ... }", "repeat EXPR { ... }", "while EXPR { ... }", "wait DURATION", "assert EXPR", "log EXPR"],
-    "functions": ["min", "max", "abs", "round", "floor", "ceil", "sqrt", "clamp", "int", "float", "str", "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width", "screen_height"],
+Performance notes
+-----------------
+
+The C++20 runtime drives every device, timer and dispatch from one epoll-based
+event loop, so a key press never waits for an interpreter or a thread hand-off.
+uinput events are batched into one write per report instead of one syscall per
+event, and pointer, button and key output goes straight to /dev/uinput instead
+of spawning a helper process. The `uinput` output backend is therefore the
+lowest-latency choice for tight `stays held every` loops; `ydotool` remains the
+right choice for non-US layouts and Unicode text.)DOC";
+
+const std::vector<std::pair<std::string, std::vector<std::string>>>& reference() {
+    static const std::vector<std::pair<std::string, std::vector<std::string>>> table = {
+        {"events",
+         {"when key NAME goes down", "when key NAME goes up", "when key NAME stays held every DURATION",
+          "when timer every DURATION", "when app starts"}},
+        {"pointer",
+         {"cursor warp X, Y", "cursor move DX, DY", "cursor glide X, Y over DURATION",
+          "cursor center"}},
+        {"mouse",
+         {"mouse BUTTON hold as TOKEN", "mouse BUTTON free as TOKEN",
+          "mouse BUTTON tap [for DURATION]"}},
+        {"keyboard",
+         {"key KEY_OR_CHORD press", "key KEY_OR_CHORD free", "key KEY_OR_CHORD tap [for DURATION]",
+          "type STRING"}},
+        {"input", {"consume key NAME"}},
+        {"desktop",
+         {"scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR",
+          "launch EXPR (allow_launch=true required)"}},
+        {"flow",
+         {"set NAME = EXPR", "if EXPR { ... } else { ... }", "repeat EXPR { ... }",
+          "while EXPR { ... }", "wait DURATION", "assert EXPR", "log EXPR"}},
+        {"functions",
+         {"min", "max", "abs", "round", "floor", "ceil", "sqrt", "clamp", "int", "float", "str",
+          "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width",
+          "screen_height"}},
+    };
+    return table;
 }
 
+std::string lower_ascii(std::string text) {
+    for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return text;
+}
 
-def render_docs(topic: str | None = None) -> str:
-    if not topic or topic.lower() in ("all", "guide"):
-        return DOCS
-    key = topic.lower()
-    if key not in API_REFERENCE:
-        return f"Unknown docs topic {topic!r}. Topics: {', '.join(API_REFERENCE)}"
-    lines = [f"KEYLOOM API: {key.upper()}", "=" * (12 + len(key))]
-    lines.extend(f"  {item}" for item in API_REFERENCE[key])
-    return "\n".join(lines)
+}  // namespace
+
+const std::string& language_guide() {
+    static const std::string guide = kGuide;
+    return guide;
+}
+
+const std::vector<std::pair<std::string, std::vector<std::string>>>& api_reference() { return reference(); }
+
+std::string render_docs(const std::string& topic) {
+    const std::string key = lower_ascii(topic);
+    if (key.empty() || key == "all" || key == "guide") return language_guide();
+    for (const auto& group : reference()) {
+        if (group.first != key) continue;
+        std::string title = "KEYLOOM API: " + group.first;
+        for (char& c : title) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        std::vector<std::string> lines;
+        lines.push_back(title);
+        lines.push_back(std::string(12 + group.first.size(), '='));
+        for (const auto& item : group.second) lines.push_back("  " + item);
+        std::string out;
+        for (size_t index = 0; index < lines.size(); ++index) {
+            if (index > 0) out += "\n";
+            out += lines[index];
+        }
+        return out;
+    }
+    std::string topics;
+    for (const auto& group : reference()) {
+        if (!topics.empty()) topics += ", ";
+        topics += group.first;
+    }
+    return "Unknown docs topic " + py_repr_string(topic) + ". Topics: " + topics;
+}
+
+}  // namespace keyloom

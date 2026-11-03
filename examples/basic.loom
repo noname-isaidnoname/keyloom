@@ -1,6 +1,10 @@
+# A tour of Keyloom's core actions and a few AutoHotkey-style features.
 loom "basic-demo" {
     option output = "auto"
     option panic = "PAUSE"
+
+    # Native remapping: F10 is withheld and emits Enter instead.
+    remap key F10 to ENTER
 
     when app starts {
         log "Keyloom is ready. F8 prints a message."
@@ -18,5 +22,18 @@ loom "basic-demo" {
     when key F9 goes down {
         cursor center
         mouse left tap for 90ms
+    }
+
+    when key F11 goes down {
+        set window = active_window_process()
+        if window == "" {
+            log "active window query requires xdotool or kdotool"
+        } else {
+            log "active window: " + window
+        }
+    }
+
+    when key F12 goes down {
+        send "Keyloom{enter}"
     }
 }

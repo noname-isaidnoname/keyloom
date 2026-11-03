@@ -1,6 +1,7 @@
 # Hold A to hold the left mouse button at spot A.
 # Hold D to hold the left mouse button at spot D.
 # A and D are consumed, so they do not type into the focused application.
+# F11 disables the A/D bindings; F12 re-enables them.
 # Change the coordinates to match your desktop. Press X to stop Keyloom.
 loom "two-spots" {
     option input = "evdev"
@@ -26,5 +27,17 @@ loom "two-spots" {
 
     when key D goes up {
         mouse left free as spot_d
+    }
+
+    when key F11 goes down {
+        call set_hotkey_enabled("A", false)
+        call set_hotkey_enabled("D", false)
+        notify "A/D hotkeys suspended"
+    }
+
+    when key F12 goes down {
+        call set_hotkey_enabled("A", true)
+        call set_hotkey_enabled("D", true)
+        notify "A/D hotkeys enabled"
     }
 }

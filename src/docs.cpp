@@ -35,7 +35,8 @@ Syntax rules
 ------------
 
 * A file contains one `loom "name" { ... }` block.
-* Top-level declarations are `option name = value` and `when ... { ... }`.
+* Top-level declarations are `option name = value`, `remap key SOURCE to TARGET`,
+  and `when ... { ... }`.
 * Blocks use braces. Each action occupies one line; comments begin with #.
 * Strings use single or double quotes. Escape sequences include \\, \n, \t.
 * Durations: 25ms, 0.5s, 2m, 1h. A bare number in a duration position means seconds.
@@ -71,6 +72,34 @@ Keyboard names are Linux input names: A-Z, 0-9, F1-F24, LEFT, RIGHT, UP,
 DOWN, ENTER, SPACE, TAB, ESC, BACKSPACE, DELETE, CTRL, SHIFT, ALT, SUPER,
 HOME, END, PAGEUP, PAGEDOWN, INSERT, PAUSE. Chords use +, e.g. CTRL+SHIFT+S.
 
+Native remapping
+----------------
+
+    remap key Q to SPACE             # Q is swallowed; Space is held with Q
+    remap key A to CTRL+B            # source is one key; target may be a chord
+
+A remap is script-wide. Its source is consumed and never reaches applications.
+Target keys are pressed when the source goes down and released in reverse order
+when it goes up. A remap source cannot be the panic key, be bound by `when key`,
+or be declared twice. Use `when key` instead when the source is needed as an
+ordinary hotkey.
+
+Send syntax
+-----------
+
+    send "hello{enter}"              # type text, then press Enter
+    send "^c"                        # Ctrl+C
+    send "!{tab}"                    # Alt+Tab
+    send "{TAB 3}"                   # three Tab taps
+    send "{CTRL down}a{CTRL up}"    # Ctrl+A while explicitly holding Ctrl
+
+Prefixes map to modifiers: ^ = Ctrl, ! = Alt, + = Shift, # = Super. A literal
+brace is written `{{}`. Special keys include {ENTER}, {TAB}, {SPACE}, {BS},
+{DELETE}, arrows, F1-F24 and key names from the keyboard table. `NAME down`
+holds a key until a matching `NAME up`; it is not automatically released at the
+end of the string. Repeating tokens use a trailing number, e.g. `{A 3}`.
+`send` never invokes a shell or evaluates the text as code.
+
 Actions
 -------
 
@@ -89,6 +118,7 @@ Actions
     key CTRL+S tap for 80ms        # press chord, then release in reverse order
     consume key A                  # swallow A (including key-up and autorepeat)
     type "Hello from Keyloom"      # type text via selected output backend
+    send "hello{enter}"            # AHK-style text and key tokens
     scroll 0, -3                   # vertical/horizontal wheel (needs /dev/uinput)
     wait 150ms
 
@@ -121,8 +151,13 @@ created with `set` or `clip read into`.
 Functions: min(a,b,...), max(a,b,...), abs(x), round(x), floor(x), ceil(x),
 sqrt(x), clamp(value, low, high), int(x), float(x), str(x), bool(x), len(x),
 random(), randint(low, high), elapsed(), key_down("A"), mouse_held("left"),
-screen_width(), screen_height(). The screen_width/screen_height variables are
-also available without parentheses.
+screen_width(), screen_height(), active_window_title(), active_window_class(),
+active_window_process(), active_window_pid(), gui_alert("text"), gui_input("label"),
+gui_confirm("question"), suspend_hotkeys(true), hotkeys_suspended(),
+set_hotkey_enabled("F8", false), hotkey_enabled("F8"). The
+screen_width/screen_height variables are also available without parentheses.
+Use `call gui_alert("done")` and `call set_hotkey_enabled("F8", false)` when the
+function only performs an action and produces no useful value.
 
 Options
 -------
@@ -147,6 +182,23 @@ Safety and runtime behavior
   each independent physical key if several bindings can hold the same button.
 * `repeat` and `while` loops are capped at 10,000 iterations per block.
 * `launch` is disabled unless explicitly enabled; it never invokes a shell.
+* `remap key SOURCE to TARGET` is script-wide and source consumption uses the
+  same keyboard-grab rules as `consume key SOURCE`; the panic key cannot be
+  remapped.
+* `active_window_title()`, `active_window_class()`, `active_window_process()`,
+  and `active_window_pid()` query the active window through `xdotool` or
+  `kdotool`, reading the process name from `/proc/<pid>/comm`. They are
+  read-only. If no supported query tool is present, string functions return an
+  empty string and `active_window_pid()` returns 0.
+* `gui_alert`, `gui_input`, and `gui_confirm` use `zenity`, `kdialog`, or
+  `yad` and are modal dialogs, not a modeless AHK `Gui` object model. Closing
+  an input dialog returns an empty string; answering a confirm dialog with
+  `false` means No/Cancel.
+* `suspend_hotkeys(true)` suspends regular `when key` and `when mouse`
+  bindings. The bindings that suspended the script remain exempt so they can
+  re-enable it; key-up bindings already ran before suspension remain valid for
+  releasing held keys. Timers, app-start blocks, panic and `remap` declarations
+  are not suspended. Use `call set_hotkey_enabled("F8", false)` for one binding.
 * `--check` parses and statically checks a script without opening input devices.
 * `--dry-run` logs actions instead of injecting them, but still listens for keys.
 * `--get-mouse-pos` captures the desktop with spectacle, grim,
@@ -213,7 +265,14 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
           "mouse BUTTON tap [for DURATION]"}},
         {"keyboard",
          {"key KEY_OR_CHORD press", "key KEY_OR_CHORD free", "key KEY_OR_CHORD tap [for DURATION]",
-          "type STRING"}},
+          "type STRING", "send STRING"}},
+        {"remap", {"remap key SOURCE to TARGET"}},
+        {"ahk",
+         {"remap key SOURCE to TARGET", "send STRING", "active_window_title()",
+          "active_window_class()", "active_window_process()", "active_window_pid()",
+          "gui_alert(MESSAGE [, TITLE])", "gui_input(PROMPT [, DEFAULT [, TITLE]])",
+          "gui_confirm(QUESTION [, TITLE])", "suspend_hotkeys(BOOL)", "hotkeys_suspended()",
+          "set_hotkey_enabled(NAME, BOOL)", "hotkey_enabled(NAME)"}},
         {"input", {"consume key NAME"}},
         {"desktop",
          {"scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR",
@@ -224,7 +283,9 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
         {"functions",
          {"min", "max", "abs", "round", "floor", "ceil", "sqrt", "clamp", "int", "float", "str",
           "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width",
-          "screen_height"}},
+          "screen_height", "active_window_title", "active_window_class", "active_window_process",
+          "active_window_pid", "gui_alert", "gui_input", "gui_confirm", "suspend_hotkeys",
+          "hotkeys_suspended", "set_hotkey_enabled", "hotkey_enabled"}},
     };
     return table;
 }

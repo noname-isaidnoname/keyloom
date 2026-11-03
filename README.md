@@ -3,6 +3,7 @@
 **Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is a native C++20 binary with no runtime dependencies beyond the C++ standard library and X11/libpng (used by the mouse-position picker). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`. It is designed for Xorg, Xwayland and native Wayland sessions.
 
 - Global physical keyboard input: evdev ioctls on `/dev/input/event*`.
+- Native remapping, AHK-style `send` syntax, active-window queries, modal GUI dialogs and runtime hotkey suspension.
 - Physical mouse buttons (`left`, `right`, `middle`, `side`, `extra`) can be observed with `when mouse ...`, in coexistence mode: the click still reaches applications.
 - Preferred keyboard/button output: `ydotool` + `ydotoold` (uinput-based and Wayland-friendly).
 - Pointer motion uses Keyloom's own absolute `uinput` device, because ydotool 1.0.x's `mousemove --absolute` jumps to the top-left corner first.
@@ -162,6 +163,8 @@ loom "sample" {
     option output = "auto"
     option panic = "PAUSE"
 
+    remap key F10 to ENTER
+
     when key F8 goes down {
         cursor center
         mouse left tap
@@ -178,11 +181,13 @@ loom "sample" {
 }
 ```
 
-Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` include `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, and `functions`.
+Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` include `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, `functions`, and `ahk`.
 
 ## Consuming keys
 
 `consume key A` keeps a key from reaching applications. It is a script-wide declaration, so place it in any event block; it takes effect at startup and swallows the key-down, autorepeat, and key-up. Keyloom grabs the physical keyboard exclusively and replays every other event through a virtual `uinput` device, so `/dev/uinput` must be writable and the panic key always passes through.
+
+For a straight replacement such as Q -> Space, use `remap key Q to SPACE` instead of a trigger block plus `consume`. The remap source is script-wide, consumed on the same terms, and cannot be the panic key.
 
 ```loom
 when key A goes down {
@@ -191,6 +196,76 @@ when key A goes down {
     mouse left hold as spot_a
 }
 ```
+
+## AutoHotkey-style macros
+
+Keyloom supports a practical AHK v2 subset while keeping its checked, declarative syntax.
+
+### Native remapping
+
+```loom
+remap key Q to SPACE
+remap key A to CTRL+B
+```
+
+Sources are consumed and do not type. Targets may be a single key or a `+`-separated chord. Target keys are pressed when the source goes down and released in reverse order when it goes up.
+
+### AHK-style send
+
+```loom
+send "hello{enter}"
+send "^c"                         # Ctrl+C
+send "!{tab}"                    # Alt+Tab
+send "{TAB 3}"                   # three Tab taps
+send "{CTRL down}a{CTRL up}"    # hold Ctrl, send A, release Ctrl
+```
+
+Prefixes are `^` Ctrl, `!` Alt, `+` Shift and `#` Super. Special tokens include `{ENTER}`, `{TAB}`, `{SPACE}`, `{BS}`, `{DELETE}`, arrows and `{F1}`–`{F24}`. Use `{CTRL down}`/`{CTRL up}` for explicit holds and `{A 3}` for repeats. `{{}` sends a literal brace; a bare `}` can be sent as ordinary text.
+
+### Active-window context
+
+```loom
+when key F8 goes down {
+    set window = active_window_process()
+    if window == "firefox" {
+        log "Firefox is active"
+    } else {
+        log "F8 ignored outside Firefox"
+    }
+}
+```
+
+`active_window_title()`, `active_window_class()`, `active_window_process()` and `active_window_pid()` are read-only. They use `xdotool` or `kdotool` where available; without one, string values are empty and the PID is 0. This works on X11 and XWayland, and is best-effort on native Wayland.
+
+### Modal GUI dialogs
+
+```loom
+when app starts {
+    set minutes = gui_input("Minutes between presses", "5", "antiafk")
+    set start_now = gui_confirm("Start now?", "antiafk")
+    call gui_alert("Minutes: " + minutes, "antiafk")
+}
+```
+
+`gui_alert`, `gui_input` and `gui_confirm` use the first available tool from `zenity`, `kdialog` and `yad`. They are modal MsgBox/InputBox equivalents, not a modeless AHK `Gui` object model. Closing an input returns `""`; declining or cancelling a confirmation returns `false`.
+
+### Runtime hotkey control
+
+```loom
+when key F11 goes down {
+    call set_hotkey_enabled("A", false)
+    call set_hotkey_enabled("D", false)
+    notify "A/D bindings disabled"
+}
+
+when key F12 goes down {
+    call set_hotkey_enabled("A", true)
+    call set_hotkey_enabled("D", true)
+    notify "A/D bindings enabled"
+}
+```
+
+`suspend_hotkeys(true)` suspends all regular key/mouse bindings until `suspend_hotkeys(false)` is called. The binding that calls `suspend_hotkeys(true)` remains exempt so it can re-enable the others. Key-up bindings for a key that was accepted before suspension still run, which prevents virtual keys and buttons from being left held. Timers, `when app starts`, the panic key and `remap` declarations are not suspended. `set_hotkey_enabled("F8", false)` or `"MOUSE_LEFT"` controls one binding; `hotkey_enabled("F8")` reports its effective state.
 
 ## Mouse buttons
 
@@ -227,13 +302,13 @@ loom "ctrl-click" {
 | Events | key down/up/held, mouse down/up/held, timer, app start |
 | Pointer | absolute warp, relative move, glide, center |
 | Mouse | hold/free/tap with independent tokens |
-| Keyboard | press/free/tap chords, text typing |
+| Keyboard | press/free/tap chords, `type`, AHK-style `send`, native `remap` |
 | Consume | swallow keys with `consume key NAME` |
-| Desktop | wheel scrolling, clipboard read/write, notifications, opt-in app launch |
+| Desktop | wheel scrolling, clipboard read/write, notifications, opt-in app launch, active-window queries, modal GUI dialogs |
 | Flow | variables, expressions, if/else, repeat, while, wait, assert, log |
-| Functions | math, conversions, random values, elapsed time, key/button state, screen dimensions |
+| Functions | math, conversions, random values, elapsed time, key/button state, screen dimensions, hotkey suspension, active window, modal dialogs |
 
-The language is intentionally constrained: it does not evaluate arbitrary code, execute shell strings, or expose an arbitrary shell statement. `launch` is disabled unless `option allow_launch = true` is set; it uses an argument vector and no shell.
+The language is intentionally constrained: it does not evaluate arbitrary code, execute shell strings, or expose an arbitrary shell statement. `launch` is disabled unless `option allow_launch = true` is set; it uses an argument vector and no shell. Active-window queries are read-only and modal dialogs use `zenity`, `kdialog` or `yad`; neither provides arbitrary system access.
 
 ## Backend notes
 
@@ -243,6 +318,7 @@ The language is intentionally constrained: it does not evaluate arbitrary code, 
 - `scroll` injects wheel events through `/dev/uinput`, so both backends need that device to be writable.
 - `consume key NAME` also needs `/dev/uinput`: Keyloom grabs the physical keyboard and replays all non-consumed events through a virtual passthrough device. Without that replay, grabbing would make the whole keyboard unusable. The panic key is never consumed.
 - `type` via uinput uses a US keyboard mapping. ydotool is recommended for non-US layouts and Unicode text.
+- `send` lowers its plain-text portions to the same typing path; braced special-key tokens are sent as key events, so use ydotool for non-US Unicode when modifiers are involved.
 - Input is event-device based; a compositor may lock input devices while in secure sessions or with special device access policies.
 
 ## Development

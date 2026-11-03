@@ -291,6 +291,30 @@ TEST_CASE(send_repeat_tokens_and_escaped_braces) {
                                        "key LEFTSHIFT up"}));
 }
 
+TEST_CASE(window_query_functions_return_a_value_without_window_tools) {
+    CHECK_TRUE(eval_expression("active_window_title()").type == Value::Type::Str);
+    CHECK_TRUE(eval_expression("active_window_class()").type == Value::Type::Str);
+    CHECK_TRUE(eval_expression("active_window_process()").type == Value::Type::Str);
+    CHECK_TRUE(eval_expression("active_window_pid()").type == Value::Type::Int);
+}
+
+Value eval_expression_or_fails(const std::string& expression) {
+    const Script script = parse("loom \"expr\" { when app starts { set result = " + expression + " } }");
+    Runtime runtime(script, Runtime::Options{});
+    runtime.set_backend(std::make_unique<RecordingBackend>());
+    runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
+    runtime.scheduler().run();
+    if (!runtime.runtime_error().empty()) {
+        throw RuntimeErrorKeyloom(runtime.runtime_error());
+    }
+    return runtime.variables().at("result");
+}
+
+TEST_CASE(arbitrary_gui_calls_are_registered_functions) {
+    CHECK_THROWS(eval_expression_or_fails("gui_input()"), RuntimeErrorKeyloom);
+    CHECK_THROWS(eval_expression_or_fails("gui_confirm(1, 2, 3)"), RuntimeErrorKeyloom);
+}
+
 TEST_CASE(remap_key_holds_and_releases_target) {
     const Script script = parse(R"LOOM(
 loom "remap" {

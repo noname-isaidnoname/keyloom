@@ -110,6 +110,10 @@ private:
 
     Value eval(const ExprPtr& expr, const EventContext& context);
     Value call_function(const std::string& name, std::vector<Value> args);
+    std::map<std::string, std::string> active_window_info() const;
+    void gui_alert(const std::string& message, const std::string& title);
+    std::string gui_input(const std::string& prompt, const std::string& default_value, const std::string& title);
+    bool gui_confirm(const std::string& question, const std::string& title);
 
     std::string clipboard(const std::string& action, const std::string& value = std::string());
     void notify_desktop(const std::string& message);

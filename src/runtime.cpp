@@ -47,6 +47,14 @@ std::string lower_ascii(std::string text) {
     return text;
 }
 
+std::string trim_ascii(std::string text) {
+    size_t first = 0;
+    while (first < text.size() && std::isspace(static_cast<unsigned char>(text[first])) != 0) ++first;
+    size_t last = text.size();
+    while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1])) != 0) --last;
+    return text.substr(first, last - first);
+}
+
 std::string join_sorted(const std::set<std::string>& values) {
     std::string out;
     for (const auto& value : values) {
@@ -190,6 +198,20 @@ bool event_binds_key(const Node& event, const std::string& key) {
     return false;
 }
 
+std::string hotkey_id_for_event(const Node& event) {
+    if (event.event_kind == "key") return canonical_key(event.event_key);
+    if (event.event_kind == "mouse") return canonical_mouse_event_key(event.event_key);
+    return std::string();
+}
+
+std::string hotkey_id_for_name(const std::string& raw_name) {
+    const std::string name = trim_ascii(raw_name);
+    const std::string lower = lower_ascii(name);
+    if (lower.rfind("mouse:", 0) == 0) return canonical_mouse_event_key(name.substr(6));
+    if (lower.rfind("mouse_", 0) == 0) return canonical_mouse_event_key(name);
+    return canonical_key(name);
+}
+
 }  // namespace
 
 std::string canonical_key(const std::string& name) { return canonical_key_name(name); }
@@ -302,6 +324,16 @@ std::pair<int, int> parse_screen_option(const Value* value, std::pair<int, int> 
     } catch (const std::exception&) {
         throw RuntimeErrorKeyloom("option screen must look like '1920x1080' or 'auto'");
     }
+}
+
+bool Runtime::hotkey_enabled(const Node& event) const {
+    if (event.event_kind != "key" && event.event_kind != "mouse") return true;
+    const std::string id = hotkey_id_for_event(event);
+    if (disabled_hotkeys_.find(id) != disabled_hotkeys_.end()) return event.edge == "up";
+    if (suspended_hotkeys_ && suspended_exempt_hotkeys_.find(id) == suspended_exempt_hotkeys_.end()) {
+        return event.edge == "up";
+    }
+    return true;
 }
 
 Runtime::Runtime(Script script) : Runtime(std::move(script), Options{}) {}
@@ -629,9 +661,14 @@ Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
                         ++it;
                     }
                 }
-                for (const auto& event : runtime->script_.events) {
-                    if (event.edge == "up" && event_binds_key(event, key)) {
-                        runtime->spawn_background(runtime->safe_dispatch(event, key, "up"));
+                const auto active_down = runtime->active_hotkey_downs_.find(key);
+                if (active_down != runtime->active_hotkey_downs_.end()) {
+                    --active_down->second;
+                    if (active_down->second <= 0) runtime->active_hotkey_downs_.erase(active_down);
+                    for (const auto& event : runtime->script_.events) {
+                        if (event.edge == "up" && event_binds_key(event, key)) {
+                            runtime->spawn_background(runtime->safe_dispatch(event, key, "up"));
+                        }
                     }
                 }
             }
@@ -708,7 +745,9 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
         }
         for (const auto& event : script_.events) {
             if (!event_binds_key(event, key)) continue;
+            if (!hotkey_enabled(event)) continue;
             if (event.edge == "down") {
+                ++active_hotkey_downs_[key];
                 spawn_background(safe_dispatch(event, key, "down"));
             } else if (event.edge == "held") {
                 held_tasks_[{key, event.line}] = spawn_held(event, key);
@@ -737,9 +776,14 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
                 ++it;
             }
         }
-        for (const auto& event : script_.events) {
-            if (event.edge == "up" && event_binds_key(event, key)) {
-                spawn_background(safe_dispatch(event, key, "up"));
+        const auto active_down = active_hotkey_downs_.find(key);
+        if (active_down != active_hotkey_downs_.end()) {
+            --active_down->second;
+            if (active_down->second <= 0) active_hotkey_downs_.erase(active_down);
+            for (const auto& event : script_.events) {
+                if (event.edge == "up" && event_binds_key(event, key)) {
+                    spawn_background(safe_dispatch(event, key, "up"));
+                }
             }
         }
     }
@@ -790,7 +834,7 @@ Task Runtime::safe_dispatch(const Node& event, std::string key, std::string edge
 }
 
 Task Runtime::dispatch(const Node& event, std::string key, std::string edge) {
-    const EventContext context{std::move(key), std::move(edge)};
+    const EventContext context{event.event_kind, std::move(key), std::move(edge)};
     co_await execute_nodes(event.body, context);
 }
 
@@ -1330,7 +1374,7 @@ std::map<std::string, std::string> Runtime::active_window_info() const {
     return info;
 }
 
-Value Runtime::call_function(const std::string& name, std::vector<Value> args) {
+Value Runtime::call_function(const std::string& name, std::vector<Value> args, const EventContext& context) {
     const auto require = [&](size_t count) {
         if (args.size() == count) return;
         throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected " + std::to_string(count) +
@@ -1428,6 +1472,45 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args) {
         require(1);
         const auto found = button_refs_.find(lower_ascii(args[0].to_string()));
         return Value::of_bool(found != button_refs_.end() && found->second > 0);
+    }
+    if (name == "suspend_hotkeys") {
+        require(1);
+        if (args[0].truthy()) {
+            suspended_hotkeys_ = true;
+            suspended_exempt_hotkeys_.clear();
+            if (context.event_kind == "key" || context.event_kind == "mouse") {
+                const std::string id = context.event_kind == "key"
+                                           ? canonical_key(context.key)
+                                           : canonical_mouse_event_key(context.key);
+                if (!id.empty()) suspended_exempt_hotkeys_.insert(id);
+            }
+        } else {
+            suspended_hotkeys_ = false;
+            suspended_exempt_hotkeys_.clear();
+        }
+        return Value::of_bool(suspended_hotkeys_);
+    }
+    if (name == "hotkeys_suspended") {
+        require(0);
+        return Value::of_bool(suspended_hotkeys_);
+    }
+    if (name == "set_hotkey_enabled") {
+        require(2);
+        const std::string id = hotkey_id_for_name(args[0].to_string());
+        if (args[1].truthy()) {
+            disabled_hotkeys_.erase(id);
+        } else {
+            disabled_hotkeys_.insert(id);
+        }
+        return Value::of_bool(true);
+    }
+    if (name == "hotkey_enabled") {
+        require(1);
+        const std::string id = hotkey_id_for_name(args[0].to_string());
+        const bool disabled = disabled_hotkeys_.find(id) != disabled_hotkeys_.end();
+        const bool suspended = suspended_hotkeys_ &&
+                               suspended_exempt_hotkeys_.find(id) == suspended_exempt_hotkeys_.end();
+        return Value::of_bool(!disabled && !suspended);
     }
     if (name == "active_window_title") {
         require(0);
@@ -1579,7 +1662,7 @@ Value Runtime::eval(const ExprPtr& expr, const EventContext& context) {
             std::vector<Value> args;
             args.reserve(expr->args.size());
             for (const auto& argument : expr->args) args.push_back(eval(argument, context));
-            return call_function(expr->name, std::move(args));
+            return call_function(expr->name, std::move(args), context);
         }
     }
     throw RuntimeErrorKeyloom("Invalid expression node");

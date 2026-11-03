@@ -315,6 +315,78 @@ TEST_CASE(arbitrary_gui_calls_are_registered_functions) {
     CHECK_THROWS(eval_expression_or_fails("gui_confirm(1, 2, 3)"), RuntimeErrorKeyloom);
 }
 
+TEST_CASE(suspend_hotkeys_keeps_the_calling_hotkey_enabled) {
+    const Script script = parse(R"LOOM(
+loom "suspend" {
+    when key F9 goes down {
+        if hotkeys_suspended() {
+            call suspend_hotkeys(false)
+        } else {
+            call suspend_hotkeys(true)
+        }
+    }
+    when key F8 goes down {
+        send "F8"
+    }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.physical_key("fake-keyboard", "F8", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F8", false);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F9", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F9", false);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F8", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F8", false);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F9", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F9", false);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-keyboard", "F8", true);
+    runtime.scheduler().run();
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"type F8", "type F8"}));
+}
+
+TEST_CASE(set_hotkey_enabled_affects_only_the_selected_binding) {
+    const Script script = parse(R"LOOM(
+loom "toggle-binding" {
+    when key F7 goes down { call set_hotkey_enabled("F8", false) }
+    when key F6 goes down { call set_hotkey_enabled("F8", true) }
+    when key F8 goes down { send "F8" }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    const auto press = [&runtime](const std::string& key) {
+        runtime.physical_key("fake-keyboard", key, true);
+        runtime.scheduler().run();
+        runtime.physical_key("fake-keyboard", key, false);
+        runtime.scheduler().run();
+    };
+    press("F8");
+    press("F7");
+    press("F8");
+    press("F6");
+    press("F8");
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"type F8", "type F8"}));
+}
+
 TEST_CASE(remap_key_holds_and_releases_target) {
     const Script script = parse(R"LOOM(
 loom "remap" {

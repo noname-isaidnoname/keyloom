@@ -76,11 +76,14 @@ public:
 
 private:
     struct EventContext {
+        std::string event_kind;
         std::string key;
         std::string edge;
     };
 
     static constexpr long long kMaxLoop = 10000;
+
+    bool hotkey_enabled(const Node& event) const;
 
     std::unique_ptr<OutputBackend> select_backend();
     void say(const std::string& message);
@@ -109,7 +112,7 @@ private:
     Task signal_loop(int fd);
 
     Value eval(const ExprPtr& expr, const EventContext& context);
-    Value call_function(const std::string& name, std::vector<Value> args);
+    Value call_function(const std::string& name, std::vector<Value> args, const EventContext& context);
     std::map<std::string, std::string> active_window_info() const;
     void gui_alert(const std::string& message, const std::string& title);
     std::string gui_input(const std::string& prompt, const std::string& default_value, const std::string& title);
@@ -136,6 +139,10 @@ private:
     int tap_counter_ = 0;
     std::map<std::pair<std::string, int>, Task::handle_type> held_tasks_;
     std::map<std::string, std::vector<std::string>> active_remaps_;
+    bool suspended_hotkeys_ = false;
+    std::set<std::string> disabled_hotkeys_;
+    std::set<std::string> suspended_exempt_hotkeys_;
+    std::map<std::string, int> active_hotkey_downs_;
     std::vector<Task::handle_type> background_;
     std::string panic_key_;
     double started_at_ = 0.0;

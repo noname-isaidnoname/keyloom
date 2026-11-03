@@ -105,6 +105,15 @@ Task drive_held_loop(Runtime& runtime, const Node& event) {
     runtime.pressed_keys().erase("X");
 }
 
+/// Press a key, let a `stays held` body get partway through a tap, then release
+/// the key so the runtime cancels the held task mid-tap.
+Task drive_hold_then_release(Runtime& runtime, std::string key, double hold_seconds) {
+    runtime.physical_key("fake-keyboard", key, true);
+    co_await sleep_for(hold_seconds);
+    runtime.physical_key("fake-keyboard", key, false);
+    co_await sleep_for(0.3);
+}
+
 struct PointerRecorder : OutputBackend {
     std::vector<std::string>* log;
     explicit PointerRecorder(std::vector<std::string>* target) : log(target) {}
@@ -180,6 +189,28 @@ loom "cadence" {
     // make the period ~15ms instead of 10ms.
     const double median = gaps.at(gaps.size() / 2);
     CHECK_TRUE(median < 0.013);
+}
+
+TEST_CASE(cancelling_a_held_tap_unwinds_and_releases_the_key) {
+    const Script script = parse(R"LOOM(
+loom "cancel-tap" {
+    when key X stays held every 10ms {
+        key E tap for 200ms
+    }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.scheduler().spawn(drive_hold_then_release(runtime, "X", 0.03));
+    runtime.scheduler().run();
+
+    // The tap is cancelled while its sleep is still pending: the key must be
+    // released exactly once, and no orphaned frame may keep tapping.
+    CHECK_EQ(raw->log, std::vector<std::string>({"key E down", "key E up"}));
 }
 
 TEST_CASE(two_spots_press_and_release_logic) {

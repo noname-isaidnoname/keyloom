@@ -25,6 +25,12 @@ struct Task {
         bool cancelled = false;
         std::exception_ptr error;
         std::coroutine_handle<> continuation{};
+        /// Coroutine this one is currently `co_await`ing, and the coroutine
+        /// awaiting this one. Together they form the live chain that owns the
+        /// frames, so cancellation can wake the frame that is actually
+        /// suspended instead of resuming a parent mid-`co_await`.
+        std::coroutine_handle<promise_type> child{};
+        std::coroutine_handle<promise_type> parent{};
 
         Task get_return_object() noexcept;
         std::suspend_always initial_suspend() noexcept { return {}; }

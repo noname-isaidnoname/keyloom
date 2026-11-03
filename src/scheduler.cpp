@@ -14,6 +14,20 @@ namespace {
 
 Scheduler* g_current = nullptr;
 
+/// Destroy a suspended frame and everything it is still awaiting. `forget_task`
+/// runs first so stale timers and fd waiters for the whole chain are dropped.
+void destroy_chain(Scheduler& scheduler, Task::handle_type frame) {
+    if (!frame) return;
+    const Task::handle_type child = frame.promise().child;
+    frame.promise().child = {};
+    scheduler.forget_task(frame);
+    if (child) {
+        child.promise().parent = {};
+        destroy_chain(scheduler, child);
+    }
+    frame.destroy();
+}
+
 }  // namespace
 
 Task Task::promise_type::get_return_object() noexcept {
@@ -38,6 +52,8 @@ bool Task::Awaiter::await_ready() const noexcept { return !handle || handle.done
 
 std::coroutine_handle<> Task::Awaiter::await_suspend(std::coroutine_handle<> awaiting) noexcept {
     handle.promise().continuation = awaiting;
+    handle.promise().parent = handle_type::from_address(awaiting.address());
+    handle.promise().parent.promise().child = handle;
     // An awaited child is not a spawned task, but the scheduler still has to know
     // the frame exists so a pending timer for it is not pruned.
     Scheduler::current().register_task(handle);
@@ -49,12 +65,16 @@ void Task::Awaiter::await_resume() {
     const handle_type frame = handle;
     handle = {};
     Scheduler& scheduler = Scheduler::current();
+    const handle_type parent = frame.promise().parent;
+    frame.promise().parent = {};
+    if (parent) parent.promise().child = {};
     if (!frame.done()) {
         // The child was cancelled while suspended. Destroying the frame runs its
         // local destructors (releasing taps and holds) and abandons the rest of
-        // the body, exactly like a cancelled asyncio task.
+        // the body, exactly like a cancelled asyncio task. Any frame it is still
+        // awaiting has to go with it, or it would resume into freed memory.
         scheduler.forget_task(frame);
-        frame.destroy();
+        destroy_chain(scheduler, frame);
         throw TaskCancelled{};
     }
     // Read the error before destroying the frame; a nested failure has to surface
@@ -123,17 +143,26 @@ void Scheduler::cancel(handle_type handle) {
     if (!handle) return;
     if (known_.find(handle) == known_.end()) return;
     if (handle.promise().cancelled) return;
-    handle.promise().cancelled = true;
-    ready_.push_back(handle);
+    // A task suspended on `co_await child()` cannot be resumed directly: its
+    // resume point is the await expression, so resuming it would destroy the
+    // child frame while the grandchild chain is still running and leave the
+    // grandchild's continuation pointing into freed memory. Wake the frame that
+    // is actually suspended, and mark the whole chain so each frame unwinds with
+    // TaskCancelled at its own await point.
+    handle_type deepest = handle;
+    while (deepest.promise().child && known_.find(deepest.promise().child) != known_.end()) {
+        deepest = deepest.promise().child;
+    }
+    for (handle_type frame = handle;; frame = frame.promise().child) {
+        frame.promise().cancelled = true;
+        if (frame == deepest) break;
+    }
+    ready_.push_back(deepest);
 }
 
 void Scheduler::cancel_all() {
     std::vector<handle_type> living(live_.begin(), live_.end());
-    for (handle_type handle : living) {
-        if (handle.promise().cancelled) continue;
-        handle.promise().cancelled = true;
-        ready_.push_back(handle);
-    }
+    for (handle_type handle : living) cancel(handle);
 }
 
 void Scheduler::check_cancelled(handle_type handle) {

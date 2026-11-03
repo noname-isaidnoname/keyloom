@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "backends.hpp"
+#include "keys.hpp"
 #include "parser.hpp"
 #include "runtime.hpp"
 #include "scheduler.hpp"
@@ -354,6 +355,105 @@ TEST_CASE(ydotool_buttons_and_keys_use_encoded_values) {
     CHECK_EQ(calls, std::vector<std::string>({"/usr/bin/ydotool --help", "/usr/bin/ydotool click 0x40",
                                               "/usr/bin/ydotool click 0x80", "/usr/bin/ydotool key 30:1",
                                               "/usr/bin/ydotool type -e 0 -- a\\nb"}));
+}
+
+TEST_CASE(mouse_buttons_map_to_distinct_runtime_names) {
+    const std::string left = normalize_key_event(BTN_LEFT).value();
+    const std::string right = normalize_key_event(BTN_RIGHT).value();
+    const std::string middle = normalize_key_event(BTN_MIDDLE).value();
+    const std::string letter = normalize_key_event(KEY_A).value();
+    CHECK_EQ(left, std::string("MOUSE_LEFT"));
+    CHECK_EQ(right, std::string("MOUSE_RIGHT"));
+    CHECK_EQ(middle, std::string("MOUSE_MIDDLE"));
+    CHECK_EQ(letter, std::string("A"));
+    CHECK_EQ(canonical_mouse_event_key("Left"), std::string("MOUSE_LEFT"));
+    CHECK_EQ(canonical_mouse_event_key("mouse_right"), std::string("MOUSE_RIGHT"));
+    // The left mouse button must never alias the LEFT arrow key.
+    CHECK_TRUE(canonical_mouse_event_key("left") != canonical_key("LEFT"));
+}
+
+TEST_CASE(mouse_button_edges_press_and_release_the_modifier) {
+    const Script script = parse(R"LOOM(
+loom "ctrl-click" {
+    when mouse left goes down { key CTRL press }
+    when mouse left goes up { key CTRL free }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.physical_key("fake-mouse", "MOUSE_LEFT", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-mouse", "MOUSE_LEFT", false);
+    runtime.scheduler().run();
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key LEFTCTRL up"}));
+}
+
+TEST_CASE(mouse_held_repeats_until_the_button_is_released) {
+    const Script script = parse(R"LOOM(
+loom "mouse-held" {
+    when mouse left stays held every 10ms { key E tap for 5ms }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.scheduler().spawn(drive_hold_then_release(runtime, "MOUSE_LEFT", 0.055));
+    runtime.scheduler().run();
+
+    const auto downs = std::count(raw->log.begin(), raw->log.end(), std::string("key E down"));
+    const auto ups = std::count(raw->log.begin(), raw->log.end(), std::string("key E up"));
+    CHECK_TRUE(downs >= 2);
+    CHECK_EQ(downs, ups);
+}
+
+TEST_CASE(mouse_button_and_arrow_key_bindings_do_not_collide) {
+    const Script script = parse(R"LOOM(
+loom "collision" {
+    when key LEFT goes down { key A press }
+    when mouse left goes down { key B press }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.physical_key("fake-keyboard", "LEFT", true);
+    runtime.scheduler().run();
+    runtime.physical_key("fake-mouse", "MOUSE_LEFT", true);
+    runtime.scheduler().run();
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"key A down", "key B down"}));
+}
+
+TEST_CASE(evdev_mouse_button_events_reach_mouse_bindings) {
+    const Script script = parse(R"LOOM(
+loom "evdev-mouse" {
+    when mouse left goes down { key CTRL press }
+    when mouse left goes up { key CTRL free }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    const std::vector<RawEvent> events = {{EV_KEY, BTN_LEFT, 1}, {EV_SYN, SYN_REPORT, 0},
+                                          {EV_KEY, BTN_LEFT, 0}, {EV_SYN, SYN_REPORT, 0}};
+    runtime.process_events(events, nullptr, "/dev/input/event99");
+    runtime.scheduler().run();
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key LEFTCTRL up"}));
 }
 
 TEST_CASE(evaluates_language_expressions_like_python) {

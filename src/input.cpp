@@ -89,6 +89,13 @@ bool InputDevice::is_keyboard() const {
     return has_a && (has_enter || has_space);
 }
 
+bool InputDevice::is_mouse() const {
+    const auto& keys = capabilities_.keys;
+    const bool has_left = std::find(keys.begin(), keys.end(), BTN_LEFT) != keys.end();
+    const bool has_right = std::find(keys.begin(), keys.end(), BTN_RIGHT) != keys.end();
+    return has_left && has_right;
+}
+
 bool InputDevice::is_keyboard_device() const {
     const bool has_a = std::find(capabilities_.keys.begin(), capabilities_.keys.end(), KEY_A) !=
                        capabilities_.keys.end();

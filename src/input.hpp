@@ -24,6 +24,7 @@ public:
 
     /// Keyboard-ish device: it can produce A and either Enter or Space.
     bool is_keyboard() const;
+    bool is_mouse() const;
     /// Narrower test used by `--devices` (A and Enter).
     bool is_keyboard_device() const;
 

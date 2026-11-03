@@ -48,8 +48,19 @@ Event triggers
     when key A goes down { ... }       # first physical key-down edge
     when key A goes up { ... }         # final physical key-up edge
     when key A stays held every 80ms { ... }  # repeating while held
+    when mouse left goes down { ... }  # physical mouse-button press
+    when mouse left goes up { ... }    # physical mouse-button release
+    when mouse left stays held every 80ms { ... }
     when timer every 2s { ... }        # periodic event
     when app starts { ... }            # one time at runtime start
+
+Mouse events read the BTN_* buttons on /dev/input/event* mice. Buttons are
+left, right, middle, side, and extra. Keyloom observes a mouse in coexistence
+mode: it never grabs the device, so the physical click still reaches
+applications. A mouse event can add an action (for example hold Ctrl while the
+button is down) but cannot suppress or replace the click. Mouse buttons and
+keyboard keys share `stays held` and `event_key` semantics but use separate
+names, so the LEFT arrow key and the left mouse button never collide.
 
 A `stays held every DURATION` block ticks on a fixed schedule: time spent
 inside the block is part of the interval, not added to it, so one 5ms tap in an
@@ -150,10 +161,13 @@ Safety and runtime behavior
 Linux backends
 --------------
 
-Input reads physical devices from /dev/input/event* with evdev ioctls. This
-works under Xorg, Xwayland, and Wayland because it is below the compositor; the
-user needs permission to read the intended input devices. Prefer a udev rule or
-an `input` group membership over running the program as root.
+Input reads physical devices from /dev/input/event* with evdev ioctls. Keyboards
+are opened when the script binds a key; mice are opened when it binds a mouse
+button. This works under Xorg, Xwayland, and Wayland because it is below the
+compositor; the user needs permission to read the intended input devices.
+Prefer a udev rule or an `input` group membership over running the program as
+root. Mouse buttons are observed without an EVIOCGRAB, unlike `consume key`,
+which grabs keyboards to withhold a key.
 
 For output, `ydotool` + `ydotoold` is the recommended Wayland/Xwayland
 backend for keyboard output. ydotool 1.0.x's `mousemove --absolute` is not a
@@ -189,7 +203,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
     static const std::vector<std::pair<std::string, std::vector<std::string>>> table = {
         {"events",
          {"when key NAME goes down", "when key NAME goes up", "when key NAME stays held every DURATION",
-          "when timer every DURATION", "when app starts"}},
+          "when mouse BUTTON goes down", "when mouse BUTTON goes up",
+          "when mouse BUTTON stays held every DURATION", "when timer every DURATION", "when app starts"}},
         {"pointer",
          {"cursor warp X, Y", "cursor move DX, DY", "cursor glide X, Y over DURATION",
           "cursor center"}},

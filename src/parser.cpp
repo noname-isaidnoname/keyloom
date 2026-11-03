@@ -143,20 +143,11 @@ private:
         if (accept("key")) {
             node.event_kind = "key";
             node.event_key = parse_key_name();
-            if (accept("stays")) {
-                expect("held");
-                expect("every");
-                node.edge = "held";
-                node.interval = parse_duration();
-            } else {
-                expect("goes");
-                std::string edge = expect_kind(TokenKind::Ident).value.to_string();
-                for (char& c : edge) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                if (edge != "down" && edge != "up") {
-                    error("Key event must be 'goes down' or 'goes up'");
-                }
-                node.edge = edge;
-            }
+            parse_event_edge(node, "Key");
+        } else if (accept("mouse")) {
+            node.event_kind = "mouse";
+            node.event_key = parse_mouse_button();
+            parse_event_edge(node, "Mouse");
         } else if (accept("timer")) {
             expect("every");
             node.event_kind = "timer";
@@ -167,11 +158,28 @@ private:
             node.event_kind = "app";
             node.edge = "starts";
         } else {
-            error("Expected 'key', 'timer', or 'app' after 'when'");
+            error("Expected 'key', 'mouse', 'timer', or 'app' after 'when'");
         }
         expect("{");
         node.body = parse_block();
         return node;
+    }
+
+    void parse_event_edge(Node& node, const char* noun) {
+        if (accept("stays")) {
+            expect("held");
+            expect("every");
+            node.edge = "held";
+            node.interval = parse_duration();
+            return;
+        }
+        expect("goes");
+        std::string edge = expect_kind(TokenKind::Ident).value.to_string();
+        for (char& c : edge) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (edge != "down" && edge != "up") {
+            error(std::string(noun) + " event must be 'goes down' or 'goes up'");
+        }
+        node.edge = edge;
     }
 
     std::vector<Node> parse_block() {
@@ -378,6 +386,17 @@ private:
         advance();
         std::string name = token.value.to_string();
         for (char& c : name) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return name;
+    }
+
+    std::string parse_mouse_button() {
+        const Token& token = current();
+        if (token.kind != TokenKind::Ident) {
+            raise_at("Expected a mouse button such as left, right, or middle", token);
+        }
+        advance();
+        std::string name = token.value.to_string();
+        for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         return name;
     }
 

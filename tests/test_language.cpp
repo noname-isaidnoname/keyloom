@@ -302,6 +302,45 @@ TEST_CASE(lexer_reports_unexpected_characters_with_a_position) {
     }
 }
 
+TEST_CASE(parses_mouse_button_events) {
+    const Script script = parse(R"LOOM(
+loom "mouse" {
+    when mouse left goes down {
+        log "left down"
+    }
+    when mouse right goes up {
+        log "right up"
+    }
+    when mouse middle stays held every 80ms {
+        log "middle held"
+    }
+}
+)LOOM");
+    CHECK_EQ(script.events.size(), static_cast<size_t>(3));
+    CHECK_EQ(script.events.at(0).event_kind, std::string("mouse"));
+    CHECK_EQ(script.events.at(0).event_key, std::string("left"));
+    CHECK_EQ(script.events.at(0).edge, std::string("down"));
+    CHECK_EQ(script.events.at(1).event_key, std::string("right"));
+    CHECK_EQ(script.events.at(1).edge, std::string("up"));
+    CHECK_EQ(script.events.at(2).event_key, std::string("middle"));
+    CHECK_EQ(script.events.at(2).edge, std::string("held"));
+    CHECK_TRUE(script.events.at(2).interval > 0.0);
+    CHECK_TRUE(!has_error(check_script(script)));
+}
+
+TEST_CASE(checker_rejects_unknown_mouse_buttons) {
+    const Script script = parse(R"LOOM(
+loom "bad-mouse" {
+    when mouse backwards goes down {
+        log "never"
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown mouse button"));
+}
+
 TEST_CASE(formats_python_style_values) {
     CHECK_EQ(py_float_str(1.5), std::string("1.5"));
     CHECK_EQ(py_float_str(1.0), std::string("1.0"));

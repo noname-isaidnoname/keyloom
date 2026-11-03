@@ -3,6 +3,7 @@
 **Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is a native C++20 binary with no runtime dependencies beyond the C++ standard library and X11/libpng (used by the mouse-position picker). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`. It is designed for Xorg, Xwayland and native Wayland sessions.
 
 - Global physical keyboard input: evdev ioctls on `/dev/input/event*`.
+- Physical mouse buttons (`left`, `right`, `middle`, `side`, `extra`) can be observed with `when mouse ...`, in coexistence mode: the click still reaches applications.
 - Preferred keyboard/button output: `ydotool` + `ydotoold` (uinput-based and Wayland-friendly).
 - Pointer motion uses Keyloom's own absolute `uinput` device, because ydotool 1.0.x's `mousemove --absolute` jumps to the top-left corner first.
 - Fallback output: a direct absolute/relative `uinput` device, written with plain `input_event` structures.
@@ -170,6 +171,10 @@ loom "sample" {
     when key F9 stays held every 100ms {
         log "F9 is still held"
     }
+
+    when mouse left goes down {
+        log "left button pressed"
+    }
 }
 ```
 
@@ -187,11 +192,39 @@ when key A goes down {
 }
 ```
 
+## Mouse buttons
+
+`when mouse left goes down`, `when mouse right goes up`, and
+`when mouse middle stays held every 100ms` bind physical mouse buttons. The
+available buttons are `left`, `right`, `middle`, `side`, and `extra`.
+
+Mouse buttons are read through evdev like keyboards, but the device is **not
+grabbed**: the original click still reaches the focused application. A mouse
+binding can add output while a button is down (for example
+`key CTRL press`), but it cannot replace or suppress the click. This is the
+coexistence behavior; Keyloom has no exclusive mouse mode. Mouse events and key
+events use separate names, so the `LEFT` arrow key and the left mouse button do
+not collide.
+
+```loom
+loom "ctrl-click" {
+    option output = "uinput"
+
+    when mouse left goes down {
+        key CTRL press
+    }
+
+    when mouse left goes up {
+        key CTRL free
+    }
+}
+```
+
 ## API summary
 
 | Area | Available commands |
 |---|---|
-| Events | key down/up/held, timer, app start |
+| Events | key down/up/held, mouse down/up/held, timer, app start |
 | Pointer | absolute warp, relative move, glide, center |
 | Mouse | hold/free/tap with independent tokens |
 | Keyboard | press/free/tap chords, text typing |

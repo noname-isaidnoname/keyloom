@@ -54,8 +54,8 @@ struct Node {
     bool is_event = false;
 
     // Event fields.
-    std::string event_kind;  // "key" | "timer" | "app"
-    std::string event_key;   // upper-case key name for key events
+    std::string event_kind;  // "key" | "mouse" | "timer" | "app"
+    std::string event_key;   // upper-case key name, or lower-case mouse button
     std::string edge;        // "down" | "up" | "held" | "tick" | "starts"
     double interval = 0.0;
 

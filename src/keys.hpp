@@ -21,7 +21,8 @@ std::string validate_key_name(const std::string& name);
 int key_code(const std::string& name);
 
 /// Reverse lookup for an input event code: returns the KEY_ name without the
-/// prefix (`A`, `LEFTCTRL`), or nothing for codes that are not keys.
+/// prefix (`A`, `LEFTCTRL`), the runtime mouse name (`MOUSE_LEFT`), or nothing
+/// for codes that are neither.
 std::optional<std::string> normalize_key_event(int code);
 
 const char* key_name_for_code(int code);
@@ -30,5 +31,9 @@ const char* key_name_for_code(int code);
 const std::unordered_map<std::string, int>& mouse_buttons();
 
 bool is_mouse_button(const std::string& name);
+
+/// Canonical runtime name for a mouse event (`left` -> `MOUSE_LEFT`). The
+/// checker validates the button first; this only normalises a valid name.
+std::string canonical_mouse_event_key(const std::string& name);
 
 }  // namespace keyloom

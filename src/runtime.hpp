@@ -84,8 +84,9 @@ private:
 
     std::unique_ptr<OutputBackend> select_backend();
     void say(const std::string& message);
-    std::vector<std::unique_ptr<InputDevice>> open_keyboards();
+    std::vector<std::unique_ptr<InputDevice>> open_input_devices(bool include_mice);
     std::string input_permission_help() const;
+    std::string mouse_permission_help() const;
     bool is_consumed_key_event(int type, int code) const;
     void release_all_holds();
     void spawn_background(Task task);

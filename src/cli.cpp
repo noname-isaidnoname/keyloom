@@ -185,8 +185,10 @@ int command_devices() {
             std::cout << path << ": no read permission (or device disappeared)\n";
             continue;
         }
-        std::cout << path << ": " << device->name() << " — "
-                  << (device->is_keyboard_device() ? "keyboard" : "other input") << "\n";
+        const char* kind = device->is_keyboard_device() ? "keyboard"
+                           : device->is_mouse()        ? "mouse"
+                                                       : "other input";
+        std::cout << path << ": " << device->name() << " — " << kind << "\n";
     }
     return 0;
 }

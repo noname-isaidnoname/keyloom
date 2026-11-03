@@ -111,6 +111,13 @@ struct KeyRelease {
     }
 };
 
+/// True when `event` is the binding for the physical key or mouse button `key`.
+bool event_binds_key(const Node& event, const std::string& key) {
+    if (event.event_kind == "key") return canonical_key(event.event_key) == key;
+    if (event.event_kind == "mouse") return canonical_mouse_event_key(event.event_key) == key;
+    return false;
+}
+
 }  // namespace
 
 std::string canonical_key(const std::string& name) { return canonical_key_name(name); }
@@ -299,7 +306,14 @@ std::string Runtime::input_permission_help() const {
            "Use `keyloom --devices` to inspect permissions.";
 }
 
-std::vector<std::unique_ptr<InputDevice>> Runtime::open_keyboards() {
+std::string Runtime::mouse_permission_help() const {
+    return "No accessible mouse devices were found. Keyloom reads /dev/input/event* through evdev and "
+           "needs a device that reports both BTN_LEFT and BTN_RIGHT. On most distributions, add your "
+           "user to the 'input' group (then log out/in), or create a narrow udev rule for your mouse. "
+           "Do not run the whole automation as root. Use `keyloom --devices` to inspect permissions.";
+}
+
+std::vector<std::unique_ptr<InputDevice>> Runtime::open_input_devices(bool include_mice) {
     std::vector<std::string> paths;
     if (!options_.input_device.empty()) {
         paths.push_back(options_.input_device);
@@ -308,15 +322,22 @@ std::vector<std::unique_ptr<InputDevice>> Runtime::open_keyboards() {
     }
 
     std::vector<std::unique_ptr<InputDevice>> devices;
+    std::set<std::string> seen;
     for (const auto& path : paths) {
+        if (!seen.insert(path).second) continue;
         auto device = InputDevice::open(path);
         if (!device) continue;
         const std::string name = lower_ascii(device->name());
+        // Never react to our own injected devices, or to the evdev proxies the
+        // Python remappers create when both tools run at once.
         if (name.find("keyloom") != std::string::npos || name.find("ydotool") != std::string::npos ||
-            name.find("virtual pointer") != std::string::npos) {
+            name.find("virtual pointer") != std::string::npos ||
+            name.find("remap_clicks") != std::string::npos) {
             continue;
         }
-        if (!device->is_keyboard()) continue;
+        const bool keyboard = device->is_keyboard();
+        const bool mouse = include_mice && device->is_mouse();
+        if (!keyboard && !mouse) continue;
         devices.push_back(std::move(device));
     }
     return devices;
@@ -399,28 +420,42 @@ Task Runtime::run_body() {
     std::vector<std::unique_ptr<PassthroughDevice>> passthroughs;
     try {
         bool has_key_events = false;
+        bool has_mouse_events = false;
         for (const auto& event : script_.events) {
             if (event.event_kind == "key") has_key_events = true;
+            if (event.event_kind == "mouse") has_mouse_events = true;
             if (event.event_kind == "app") {
                 co_await safe_dispatch(event, std::string(), "starts");
             } else if (event.event_kind == "timer") {
                 spawn_background(timer_loop(event, event.interval));
             }
         }
-        if (!has_key_events) {
+        if (!has_key_events && !has_mouse_events) {
             say("No key bindings found; timer/app events are active. Press the panic key or Ctrl+C to stop.");
         }
 
-        devices_ = open_keyboards();
-        if (devices_.empty() && has_key_events) throw RuntimeErrorKeyloom(input_permission_help());
+        devices_ = open_input_devices(has_mouse_events);
+        const auto has_device = [this](const auto& predicate) {
+            return std::any_of(devices_.begin(), devices_.end(), predicate);
+        };
+        if (has_key_events && !has_device([](const auto& device) { return device->is_keyboard(); })) {
+            throw RuntimeErrorKeyloom(input_permission_help());
+        }
+        if (has_mouse_events && !has_device([](const auto& device) { return device->is_mouse(); })) {
+            throw RuntimeErrorKeyloom(mouse_permission_help());
+        }
 
         if (!devices_.empty()) {
+            std::map<std::string, EventSink*> passthrough_by_path;
             if (!consumed_keys_.empty()) {
                 const std::string keys = join_sorted(consumed_keys_);
                 if (options_.dry_run) {
                     say("Dry run: would consume key(s) " + keys + "; devices are not grabbed.");
                 } else {
+                    // Only keyboards are grabbed. Mouse buttons are observed in
+                    // coexistence mode: the physical click still reaches apps.
                     for (auto& device : devices_) {
+                        if (!device->is_keyboard()) continue;
                         auto passthrough = std::make_unique<PassthroughDevice>(device->capabilities());
                         try {
                             device->grab();
@@ -431,6 +466,7 @@ Task Runtime::run_body() {
                                 "user lacks device access. Details: " +
                                 std::string(error.what()));
                         }
+                        passthrough_by_path[device->path()] = passthrough.get();
                         passthroughs.push_back(std::move(passthrough));
                     }
                     std::string note;
@@ -439,15 +475,17 @@ Task Runtime::run_body() {
                 }
             }
 
-            for (size_t index = 0; index < devices_.size(); ++index) {
-                EventSink* sink = index < passthroughs.size() ? passthroughs[index].get() : nullptr;
-                spawn_background(read_device(devices_[index].get(), sink));
+            for (auto& device : devices_) {
+                const auto found = passthrough_by_path.find(device->path());
+                EventSink* sink = found == passthrough_by_path.end() ? nullptr : found->second;
+                spawn_background(read_device(device.get(), sink));
             }
 
             std::string names;
             for (const auto& device : devices_) {
                 if (!names.empty()) names += ", ";
-                names += device->name() + " (" + device->path() + ")";
+                names += std::string(device->is_mouse() ? "mouse " : "keyboard ") + device->name() + " (" +
+                         device->path() + ")";
             }
             say("Listening on: " + names);
         }
@@ -519,8 +557,7 @@ Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
                     }
                 }
                 for (const auto& event : runtime->script_.events) {
-                    if (event.event_kind == "key" && event.edge == "up" &&
-                        canonical_key(event.event_key) == key) {
+                    if (event.edge == "up" && event_binds_key(event, key)) {
                         runtime->spawn_background(runtime->safe_dispatch(event, key, "up"));
                     }
                 }
@@ -588,7 +625,7 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
             return;
         }
         for (const auto& event : script_.events) {
-            if (event.event_kind != "key" || canonical_key(event.event_key) != key) continue;
+            if (!event_binds_key(event, key)) continue;
             if (event.edge == "down") {
                 spawn_background(safe_dispatch(event, key, "down"));
             } else if (event.edge == "held") {
@@ -612,7 +649,7 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
             }
         }
         for (const auto& event : script_.events) {
-            if (event.event_kind == "key" && event.edge == "up" && canonical_key(event.event_key) == key) {
+            if (event.edge == "up" && event_binds_key(event, key)) {
                 spawn_background(safe_dispatch(event, key, "up"));
             }
         }

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstddef>
 #include <iterator>
+#include <linux/input.h>
 
 #include "errors.hpp"
 #include "value.hpp"
@@ -59,13 +60,20 @@ const std::unordered_map<std::string, int>& mouse_buttons() {
 }
 
 bool is_mouse_button(const std::string& name) {
-    return mouse_buttons().find(name) != mouse_buttons().end();
+    std::string lowered = name;
+    for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return mouse_buttons().find(lowered) != mouse_buttons().end();
 }
 
 namespace {
 
 std::string upper_ascii(std::string text) {
     for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return text;
+}
+
+std::string lower_ascii(std::string text) {
+    for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return text;
 }
 
@@ -141,7 +149,24 @@ const char* key_name_for_code(int code) {
     return found->name;
 }
 
+std::string canonical_mouse_event_key(const std::string& name) {
+    std::string lowered = lower_ascii(name);
+    const std::string prefix = "mouse_";
+    if (lowered.rfind(prefix, 0) == 0) lowered = lowered.substr(prefix.size());
+    return "MOUSE_" + upper_ascii(lowered);
+}
+
 std::optional<std::string> normalize_key_event(int code) {
+    // Mouse buttons arrive as EV_KEY too. Give them a distinct MOUSE_ prefix so
+    // BTN_LEFT cannot be confused with the LEFT arrow key.
+    switch (code) {
+        case BTN_LEFT: return std::string("MOUSE_LEFT");
+        case BTN_RIGHT: return std::string("MOUSE_RIGHT");
+        case BTN_MIDDLE: return std::string("MOUSE_MIDDLE");
+        case BTN_SIDE: return std::string("MOUSE_SIDE");
+        case BTN_EXTRA: return std::string("MOUSE_EXTRA");
+        default: break;
+    }
     const char* name = key_name_for_code(code);
     if (name == nullptr) return std::nullopt;
     return std::string(name);

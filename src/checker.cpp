@@ -136,11 +136,14 @@ std::vector<Diagnostic> check_script(const Script& script) {
                                event.line});
             }
         }
+        if (kind == "mouse" && !is_mouse_button(event.event_key)) {
+            out.push_back({"error", "Unknown mouse button " + py_repr_string(event.event_key), event.line});
+        }
         if (kind == "timer" && event.interval <= 0.0) {
             out.push_back({"error", "Timer interval must be greater than zero", event.line});
         }
-        if (kind == "key" && event.edge == "held" && event.interval <= 0.0) {
-            out.push_back({"error", "Held-key interval must be greater than zero", event.line});
+        if ((kind == "key" || kind == "mouse") && event.edge == "held" && event.interval <= 0.0) {
+            out.push_back({"error", "Held-event interval must be greater than zero", event.line});
         }
 
         walk(event.body, [&](const Node& node) {
@@ -148,7 +151,8 @@ std::vector<Diagnostic> check_script(const Script& script) {
                 if (!is_mouse_button(node.a)) {
                     out.push_back({"error", "Unknown mouse button " + py_repr_string(node.a), node.line});
                 }
-                const std::string owner = kind == "key" ? event.event_key : std::string("script");
+                const std::string owner =
+                    (kind == "key" || kind == "mouse") ? event.event_key : std::string("script");
                 const std::string default_token = "default:" + owner + ":" + node.a;
                 const std::string token = node.c.empty() ? default_token : node.c;
                 if (node.b == "hold") held_tokens.insert(token);

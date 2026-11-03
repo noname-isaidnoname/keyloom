@@ -356,6 +356,7 @@ std::set<std::string> Runtime::collect_consumed_keys() const {
             for (const auto& child : node->otherwise) stack.push_back(&child);
         }
     }
+    for (const auto& remap : script_.remaps) found.insert(canonical_key(remap.source));
     if (!panic_key_.empty()) found.erase(panic_key_);
     return found;
 }
@@ -624,6 +625,15 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
             scheduler_.request_stop();
             return;
         }
+        for (const auto& remap : script_.remaps) {
+            if (canonical_key(remap.source) != key) continue;
+            if (active_remaps_.find(key) != active_remaps_.end()) return;
+            std::vector<std::string> names;
+            for (const auto& part : split_on(remap.target, '+')) names.push_back(canonical_key(part));
+            for (const auto& name : names) hold_key(name);
+            active_remaps_.emplace(key, std::move(names));
+            return;
+        }
         for (const auto& event : script_.events) {
             if (!event_binds_key(event, key)) continue;
             if (event.edge == "down") {
@@ -640,6 +650,13 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
         }
         if (still_down || pressed_keys_.find(key) == pressed_keys_.end()) return;
         pressed_keys_.erase(key);
+        const auto remap_it = active_remaps_.find(key);
+        if (remap_it != active_remaps_.end()) {
+            const std::vector<std::string> names = std::move(remap_it->second);
+            active_remaps_.erase(remap_it);
+            for (auto it = names.rbegin(); it != names.rend(); ++it) free_key(*it);
+            return;
+        }
         for (auto it = held_tasks_.begin(); it != held_tasks_.end();) {
             if (it->first.first == key) {
                 scheduler_.cancel(it->second);
@@ -843,6 +860,8 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 throw RuntimeErrorKeyloom("assertion failed at line " + std::to_string(node.line));
             }
             break;
+        case StmtKind::Send:
+            throw RuntimeErrorKeyloom("send is not supported yet");
         case StmtKind::Call:
             eval(node.exprs.at(0), context);
             break;

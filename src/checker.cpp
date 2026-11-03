@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <map>
 #include <set>
 #include <string>
 #include <unistd.h>
@@ -119,8 +120,72 @@ std::vector<Diagnostic> check_script(const Script& script) {
         have_panic_key = true;
     }
 
+    std::map<std::string, int> remap_sources;
+    for (const auto& remap : script.remaps) {
+        try {
+            remap_sources[canonical_key_name(remap.source)] = remap.line;
+        } catch (const BackendError&) {
+            // Canonicalization cannot fail here because validate_key_name below reports it.
+        }
+    }
+
     std::set<std::string> held_tokens;
     std::set<std::string> freed_tokens;
+
+    for (const auto& remap : script.remaps) {
+        std::string source;
+        try {
+            source = validate_key_name(remap.source);
+        } catch (const BackendError& error) {
+            out.push_back({"error", error.what(), remap.line});
+            source = canonical_key_name(remap.source);
+        }
+        std::string target = remap.target;
+        std::set<std::string> chord;
+        size_t start = 0;
+        while (true) {
+            const size_t plus = target.find('+', start);
+            const std::string part =
+                plus == std::string::npos ? target.substr(start) : target.substr(start, plus - start);
+            try {
+                const std::string canonical = validate_key_name(part);
+                if (!chord.insert(canonical).second) {
+                    out.push_back({"error", "Key chord in remap target contains " + py_repr_string(canonical) + " more than once", remap.line});
+                }
+            } catch (const BackendError& error) {
+                out.push_back({"error", error.what(), remap.line});
+                break;
+            }
+            if (plus == std::string::npos) break;
+            start = plus + 1;
+        }
+
+        auto duplicate = remap_sources.find(source);
+        if (duplicate != remap_sources.end() && duplicate->second != remap.line) {
+            out.push_back({"error", "Remap source " + source + " is declared more than once", remap.line});
+        }
+        if (have_panic_key && source == panic_key) {
+            out.push_back({"error", "Remap source " + source + " is the panic key", remap.line});
+        }
+        bool bound_by_event = false;
+        bool explicitly_consumed = false;
+        for (const auto& event : script.events) {
+            if (event.event_kind != "key") continue;
+            if (canonical_key_name(event.event_key) == source) {
+                bound_by_event = true;
+                if (event.edge != "up") break;
+            }
+            walk(event.body, [&](const Node& node) {
+                if (node.stmt == StmtKind::Consume && canonical_or_empty(node.a) == source) explicitly_consumed = true;
+            });
+        }
+        if (bound_by_event) {
+            out.push_back({"error", "Remap source " + source + " is already bound by a when key block", remap.line});
+        }
+        if (explicitly_consumed) {
+            out.push_back({"warning", "Remap source " + source + " is also consumed explicitly; the remap is already consumed", remap.line});
+        }
+    }
 
     for (const auto& event : script.events) {
         const std::string& kind = event.event_kind;
@@ -196,6 +261,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
             if (node.stmt == StmtKind::Consume) needs_passthrough = true;
         });
     }
+    if (!script.remaps.empty()) needs_passthrough = true;
 
     if (needs_pointer && !uinput_writable()) {
         out.push_back({"warning",

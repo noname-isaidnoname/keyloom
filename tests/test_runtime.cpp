@@ -252,6 +252,53 @@ loom "consume" {
     CHECK_TRUE(consumed.count("D") == 1);
 }
 
+TEST_CASE(remap_key_holds_and_releases_target) {
+    const Script script = parse(R"LOOM(
+loom "remap" {
+    remap key Q to SPACE
+    when app starts { log "ready" }
+}
+)LOOM");
+    CHECK_EQ(script.remaps.size(), static_cast<size_t>(1));
+    CHECK_EQ(script.remaps.at(0).target, std::string("SPACE"));
+
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.physical_key("fake-keyboard", "Q", true);
+    runtime.physical_key("fake-keyboard", "Q", true);
+    runtime.physical_key("fake-keyboard", "Q", false);
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down", "key SPACE up"}));
+}
+
+TEST_CASE(remap_source_is_script_wide_consumed) {
+    const Script script = parse(R"LOOM(
+loom "remap-passthrough" {
+    remap key Q to SPACE
+    when timer every 1s { log "tick" }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.set_consumed_keys(runtime.collect_consumed_keys());
+
+    const std::vector<RawEvent> events = {
+        {EV_KEY, KEY_Q, 1}, {EV_KEY, KEY_A, 1}, {EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 0},
+    };
+    FakeSink sink;
+    runtime.process_events(events, &sink, "/dev/input/event99");
+
+    CHECK_EQ(sink.writes.size(), static_cast<size_t>(2));
+    CHECK_EQ(sink.writes.at(0), std::string(std::to_string(EV_KEY) + ":" + std::to_string(KEY_A) + ":1"));
+    CHECK_EQ(sink.writes.at(1), std::string(std::to_string(EV_KEY) + ":" + std::to_string(KEY_A) + ":0"));
+}
+
 TEST_CASE(consumed_key_events_are_not_replayed) {
     const Script script = parse("loom \"passthrough\" { when timer every 1s { log \"tick\" } }");
     Runtime runtime(script, Runtime::Options{});

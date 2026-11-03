@@ -126,6 +126,7 @@ private:
     std::map<std::string, int> key_refs_;
     int tap_counter_ = 0;
     std::map<std::pair<std::string, int>, Task::handle_type> held_tasks_;
+    std::map<std::string, std::vector<std::string>> active_remaps_;
     std::vector<Task::handle_type> background_;
     std::string panic_key_;
     double started_at_ = 0.0;

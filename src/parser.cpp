@@ -30,6 +30,7 @@ const char* stmt_kind_name(StmtKind kind) {
         case StmtKind::While: return "while";
         case StmtKind::Assert: return "assert";
         case StmtKind::Call: return "call";
+    case StmtKind::Send: return "send";
     }
     return "unknown";
 }
@@ -70,10 +71,12 @@ public:
                 }
                 script.options.emplace_back(key, value_expr->literal);
                 end_statement();
+            } else if (is_value("remap")) {
+                script.remaps.push_back(parse_remap());
             } else if (is_value("when")) {
                 script.events.push_back(parse_when());
             } else {
-                error("Only 'option' and 'when' are allowed at the top level");
+                error("Only 'option', 'remap', and 'when' are allowed at the top level");
             }
             skip_lines();
         }
@@ -163,6 +166,18 @@ private:
         expect("{");
         node.body = parse_block();
         return node;
+    }
+
+    Remap parse_remap() {
+        const Token start = expect("remap");
+        Remap remap;
+        remap.line = start.line;
+        expect("key");
+        remap.source = parse_key_name();
+        expect("to");
+        remap.target = parse_key_chord();
+        end_statement();
+        return remap;
     }
 
     void parse_event_edge(Node& node, const char* noun) {

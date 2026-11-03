@@ -43,12 +43,22 @@ enum class StmtKind {
     While,
     Assert,
     Call,
+    Send,
 };
 
 const char* stmt_kind_name(StmtKind kind);
 
 /// One statement, or one `when` event block. Keeping the fields flat mirrors the
 /// original tuple-based nodes and keeps the checker/runtime dispatch readable.
+/// A top-level `remap` declaration. `source` is one physical key; `target`
+/// is a key or `+`-separated chord. The parser validates names; the checker
+/// validates chord contents so parse errors stay focused on syntax.
+struct Remap {
+    std::string source;
+    std::string target;
+    int line = 1;
+};
+
 struct Node {
     StmtKind stmt = StmtKind::Log;
     bool is_event = false;
@@ -79,6 +89,7 @@ struct Script {
     std::string path = "<memory>";
     std::vector<std::pair<std::string, Value>> options;
     std::vector<Node> events;
+    std::vector<Remap> remaps;
 
     const Value* option(const std::string& key) const {
         for (const auto& entry : options) {

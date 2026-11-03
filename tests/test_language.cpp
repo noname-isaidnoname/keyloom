@@ -236,6 +236,43 @@ loom "numeric-keys" {
     CHECK_EQ(script.events.at(0).body.at(0).duration, 0.05);
 }
 
+TEST_CASE(parses_and_checks_native_remaps) {
+    const Script script = parse(R"LOOM(
+loom "remap-check" {
+    remap key Q to SPACE
+    remap key A to CTRL+B
+    when app starts { log "ready" }
+}
+)LOOM");
+    CHECK_EQ(script.remaps.size(), static_cast<size_t>(2));
+    CHECK_EQ(script.remaps.at(0).source, std::string("Q"));
+    CHECK_EQ(script.remaps.at(1).target, std::string("CTRL+B"));
+
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(!has_error(diagnostics));
+}
+
+TEST_CASE(static_check_rejects_remap_conflicts) {
+    const Script script = parse(R"LOOM(
+loom "bad-remap" {
+    option panic = "Q"
+    remap key Q to SPACE
+    remap key A to NOT_A_KEY_XYZ
+    when key A goes down { log "bound" }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "Remap source Q is the panic key"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOT_A_KEY_XYZ'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Remap source A is already bound by a when key block"));
+}
+
+TEST_CASE(static_check_rejects_spaced_remap_syntax) {
+    CHECK_THROWS(parse("loom \"bad-remap-syntax\" { remap key CTRL+Q to SPACE when app starts { log \"x\" } }"),
+                 ParseError);
+}
+
 TEST_CASE(parses_consume_statements) {
     const Script script = parse(R"LOOM(
 loom "consume" {

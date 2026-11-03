@@ -122,14 +122,6 @@ std::optional<std::string> send_modifier_for_prefix(char c) {
     }
 }
 
-std::string trim_send_token(std::string text) {
-    size_t first = 0;
-    while (first < text.size() && std::isspace(static_cast<unsigned char>(text[first])) != 0) ++first;
-    size_t last = text.size();
-    while (last > first && std::isspace(static_cast<unsigned char>(text[last - 1])) != 0) --last;
-    return text.substr(first, last - first);
-}
-
 std::vector<std::string> split_send_words(const std::string& text) {
     std::vector<std::string> words;
     size_t start = 0;
@@ -1036,7 +1028,7 @@ void Runtime::send_string(const std::string& text) {
             if (close == std::string::npos) {
                 throw RuntimeErrorKeyloom("send has an unclosed '{' token");
             }
-            const std::string content = trim_send_token(text.substr(index + 1, close - index - 1));
+            const std::string content = trim_ascii(text.substr(index + 1, close - index - 1));
             const std::vector<std::string> words = split_send_words(content);
             if (words.empty()) throw RuntimeErrorKeyloom("send has an empty {} token");
             const std::string& first = words.front();
@@ -1330,7 +1322,12 @@ std::map<std::string, std::string> Runtime::active_window_info() const {
                                              value.back() == '\t')) {
                         value.pop_back();
                     }
-                    info["pid"] = value;
+                    if (!value.empty() &&
+                        std::all_of(value.begin(), value.end(), [](char c) {
+                            return std::isdigit(static_cast<unsigned char>(c)) != 0;
+                        })) {
+                        info["pid"] = value;
+                    }
                 }
             }
         }
@@ -1353,13 +1350,27 @@ std::map<std::string, std::string> Runtime::active_window_info() const {
                         while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) value.pop_back();
                         info["title"] = value;
                     }
-                    const CommandResult window_class = run_command({kdotool, "getwindowclass", id}, std::string(), 250);
+                    const CommandResult window_class = run_command({kdotool, "getwindowclassname", id}, std::string(), 250);
                     if (window_class.returncode == 0) {
                         std::string value = window_class.out;
                         while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) value.pop_back();
                         info["class"] = value;
                     }
-                    info["pid"] = id;
+                    const CommandResult pid = run_command({kdotool, "getwindowpid", id}, std::string(), 250);
+                    if (pid.returncode == 0) {
+                        std::string value = pid.out;
+                        while (!value.empty() &&
+                               (value.back() == '\n' || value.back() == '\r' || value.back() == ' ' ||
+                                value.back() == '\t')) {
+                            value.pop_back();
+                        }
+                        if (!value.empty() &&
+                            std::all_of(value.begin(), value.end(), [](char c) {
+                                return std::isdigit(static_cast<unsigned char>(c)) != 0;
+                            })) {
+                            info["pid"] = value;
+                        }
+                    }
                 }
             }
         }
@@ -1531,7 +1542,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         try {
             return Value::of_int(std::stoll(value));
         } catch (const std::exception&) {
-            return Value::of_str(value);
+            return Value::of_int(0);
         }
     }
     if (name == "gui_alert") {

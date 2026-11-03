@@ -50,6 +50,26 @@ const char* stmt_kind_name(StmtKind kind);
 
 /// One statement, or one `when` event block. Keeping the fields flat mirrors the
 /// original tuple-based nodes and keeps the checker/runtime dispatch readable.
+/// One widget in a persistent `gui` declaration. Labels are structural and
+/// have no identifier; inputs and buttons are addressable from callbacks and
+/// expression functions such as `gui_value()` and `gui_set_text()`.
+struct GuiWidget {
+    enum class Kind { Label, Input, Button };
+
+    Kind kind = Kind::Label;
+    std::string id;
+    std::string text;
+    int line = 1;
+};
+
+/// A persistent GUI panel. `title` is also used as the panel identifier by
+/// expression functions such as `gui_set_visible()`.
+struct GuiPanel {
+    std::string title;
+    std::vector<GuiWidget> widgets;
+    int line = 1;
+};
+
 /// A top-level `remap` declaration. `source` is one physical key; `target`
 /// is a key or `+`-separated chord. The parser validates names; the checker
 /// validates chord contents so parse errors stay focused on syntax.
@@ -90,6 +110,7 @@ struct Script {
     std::vector<std::pair<std::string, Value>> options;
     std::vector<Node> events;
     std::vector<Remap> remaps;
+    std::vector<GuiPanel> panels;
 
     const Value* option(const std::string& key) const {
         for (const auto& entry : options) {

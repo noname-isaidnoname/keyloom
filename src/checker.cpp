@@ -129,6 +129,24 @@ std::vector<Diagnostic> check_script(const Script& script) {
         }
     }
 
+    std::map<std::string, std::string> gui_widgets;
+    std::set<std::string> gui_titles;
+    for (const auto& panel : script.panels) {
+        if (!gui_titles.insert(panel.title).second) {
+            out.push_back({"error", "GUI panel title " + py_repr_string(panel.title) + " is used more than once", panel.line});
+        }
+        if (panel.widgets.empty()) {
+            out.push_back({"error", "GUI panel " + py_repr_string(panel.title) + " has no widgets", panel.line});
+        }
+        for (const auto& widget : panel.widgets) {
+            if (widget.id.empty()) continue;
+            const std::string kind = widget.kind == GuiWidget::Kind::Input ? "input" : "button";
+            if (!gui_widgets.emplace(widget.id, kind).second) {
+                out.push_back({"error", "GUI widget " + py_repr_string(widget.id) + " is declared more than once", widget.line});
+            }
+        }
+    }
+
     std::set<std::string> held_tokens;
     std::set<std::string> freed_tokens;
 
@@ -203,6 +221,22 @@ std::vector<Diagnostic> check_script(const Script& script) {
         }
         if (kind == "mouse" && !is_mouse_button(event.event_key)) {
             out.push_back({"error", "Unknown mouse button " + py_repr_string(event.event_key), event.line});
+        }
+        if (kind == "gui") {
+            if (event.edge == "clicked") {
+                const auto found = gui_widgets.find(event.event_key);
+                if (found == gui_widgets.end()) {
+                    out.push_back({"error", "GUI widget " + py_repr_string(event.event_key) + " is not declared in a gui block", event.line});
+                } else if (found->second != "button") {
+                    out.push_back({"error", "GUI widget " + py_repr_string(event.event_key) + " is not a button", event.line});
+                }
+            } else if (event.edge == "close") {
+                if (event.event_key != "window") {
+                    out.push_back({"error", "GUI window close event must be 'when gui window closes'", event.line});
+                }
+            } else {
+                out.push_back({"error", "Unsupported GUI event edge " + py_repr_string(event.edge), event.line});
+            }
         }
         if (kind == "timer" && event.interval <= 0.0) {
             out.push_back({"error", "Timer interval must be greater than zero", event.line});

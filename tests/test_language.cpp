@@ -273,6 +273,56 @@ TEST_CASE(static_check_rejects_spaced_remap_syntax) {
                  ParseError);
 }
 
+TEST_CASE(parses_gui_panels_and_events) {
+    const Script script = parse(R"LOOM(
+loom "gui-parse" {
+    gui "Example Panel" {
+        label "Name:"
+        input name = "default"
+        button save = "Save"
+    }
+
+    when gui save clicked {
+        log "saved"
+    }
+
+    when gui window closes {
+        log "closed"
+    }
+}
+)LOOM");
+    CHECK_EQ(script.panels.size(), static_cast<size_t>(1));
+    const auto& panel = script.panels.front();
+    CHECK_EQ(panel.widgets.size(), static_cast<size_t>(3));
+    CHECK_EQ(panel.widgets.at(1).id, std::string("name"));
+    CHECK_EQ(panel.widgets.at(2).text, std::string("Save"));
+
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(!has_error(diagnostics));
+}
+
+TEST_CASE(static_check_rejects_gui_declaration_errors) {
+    const Script script = parse(R"LOOM(
+loom "bad-gui" {
+    gui "Duplicate" {
+        input shared = "one"
+        button shared = "Two"
+    }
+    when gui missing clicked {
+        log "clicked"
+    }
+    when gui shared clicked {
+        log "clicked"
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'shared' is declared more than once"));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'missing' is not declared in a gui block"));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'shared' is not a button"));
+}
+
 TEST_CASE(parses_send_statements) {
     const Script script = parse(R"LOOM(
 loom "send-statement" {

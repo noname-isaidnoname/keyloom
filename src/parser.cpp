@@ -73,10 +73,12 @@ public:
                 end_statement();
             } else if (is_value("remap")) {
                 script.remaps.push_back(parse_remap());
+            } else if (is_value("gui")) {
+                script.panels.push_back(parse_gui_panel());
             } else if (is_value("when")) {
                 script.events.push_back(parse_when());
             } else {
-                error("Only 'option', 'remap', and 'when' are allowed at the top level");
+                error("Only 'option', 'remap', 'gui', and 'when' are allowed at the top level");
             }
             skip_lines();
         }
@@ -151,6 +153,17 @@ private:
             node.event_kind = "mouse";
             node.event_key = parse_mouse_button();
             parse_event_edge(node, "Mouse");
+        } else if (accept("gui")) {
+            node.event_kind = "gui";
+            if (accept("window")) {
+                expect("closes");
+                node.event_key = "window";
+                node.edge = "close";
+            } else {
+                node.event_key = parse_gui_id();
+                expect("clicked");
+                node.edge = "clicked";
+            }
         } else if (accept("timer")) {
             expect("every");
             node.event_kind = "timer";
@@ -161,11 +174,54 @@ private:
             node.event_kind = "app";
             node.edge = "starts";
         } else {
-            error("Expected 'key', 'mouse', 'timer', or 'app' after 'when'");
+            error("Expected 'key', 'mouse', 'timer', 'gui', or 'app' after 'when'");
         }
         expect("{");
         node.body = parse_block();
         return node;
+    }
+
+    GuiPanel parse_gui_panel() {
+        const Token start = expect("gui");
+        GuiPanel panel;
+        panel.line = start.line;
+        panel.title = expect_kind(TokenKind::String).value.to_string();
+        if (panel.title.empty()) error("GUI panel title cannot be empty");
+        expect("{");
+        skip_lines();
+        while (!accept("}")) {
+            if (current().kind == TokenKind::Eof) error("Unclosed gui block");
+            const Token widget_start = current();
+            GuiWidget widget;
+            widget.line = widget_start.line;
+            if (accept("label")) {
+                widget.kind = GuiWidget::Kind::Label;
+                widget.text = expect_kind(TokenKind::String).value.to_string();
+            } else if (accept("input")) {
+                widget.kind = GuiWidget::Kind::Input;
+                widget.id = parse_gui_id();
+                expect("=");
+                widget.text = expect_kind(TokenKind::String).value.to_string();
+            } else if (accept("button")) {
+                widget.kind = GuiWidget::Kind::Button;
+                widget.id = parse_gui_id();
+                expect("=");
+                widget.text = expect_kind(TokenKind::String).value.to_string();
+            } else {
+                error("Expected 'label', 'input', or 'button' in gui block");
+            }
+            panel.widgets.push_back(std::move(widget));
+            end_statement();
+            skip_lines();
+        }
+        return panel;
+    }
+
+    std::string parse_gui_id() {
+        const Token token = expect_kind(TokenKind::Ident);
+        std::string id = token.value.to_string();
+        for (char& c : id) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return id;
     }
 
     Remap parse_remap() {

@@ -353,8 +353,11 @@ private:
         }
         if (accept("wait")) {
             node.stmt = StmtKind::Wait;
-            node.duration = parse_duration();
-            node.has_duration = true;
+            node.exprs.push_back(parse_expr());
+            if (node.exprs.back()->kind == Expr::Kind::Literal) {
+                node.duration = node.exprs.back()->literal.as_double();
+                node.has_duration = true;
+            }
             end_statement();
             return node;
         }

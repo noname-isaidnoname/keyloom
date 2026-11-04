@@ -54,6 +54,7 @@ add_library(keyloom_core STATIC
     src/input.cpp
     src/runtime.cpp
     src/mousepos.cpp
+    src/gui.cpp
     src/cli.cpp)
 target_include_directories(keyloom_core PUBLIC src)
 target_link_libraries(keyloom_core PUBLIC keyloom_options PkgConfig::X11 PkgConfig::LIBPNG)
@@ -84,6 +85,12 @@ if(BUILD_TESTING)
             KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
             bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
     set_tests_properties(picker_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120)
+    add_test(NAME gui_integration
+        COMMAND ${CMAKE_COMMAND} -E env
+            KEYLOOM_BIN=$<TARGET_FILE:keyloom>
+            KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
+            bash ${CMAKE_SOURCE_DIR}/tests/gui_integration.sh)
+    set_tests_properties(gui_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 endif()
 
 install(TARGETS keyloom RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

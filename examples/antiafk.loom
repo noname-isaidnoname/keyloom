@@ -1,0 +1,58 @@
+# Persistent Space auto-presser. Closing the window stops Keyloom.
+loom "antiafk" {
+    option output = "uinput"
+    option panic = "END"
+
+    gui "Space Auto-Presser" {
+        label "Min Interval (Seconds):"
+        input min_interval = "60.0"
+        label "Max Interval (Seconds):"
+        input max_interval = "120.0"
+        label "Hold Space down for (ms):"
+        input hold_ms = "300"
+        button toggle = "Start"
+    }
+
+    when app starts {
+        set active = false
+        set next_at = elapsed()
+    }
+
+    when gui toggle clicked {
+        if active {
+            set active = false
+            key SPACE free
+            call gui_set_text("toggle", "Start")
+            log "Auto-presser stopped"
+        } else {
+            set min_text = gui_value("min_interval")
+            set max_text = gui_value("max_interval")
+            set hold_text = gui_value("hold_ms")
+            if is_number(min_text) and is_number(max_text) and is_number(hold_text) {
+                set min_seconds = float(min_text)
+                set max_seconds = float(max_text)
+                set hold_seconds = float(hold_text) / 1000
+                if min_seconds > 0 and max_seconds >= min_seconds and hold_seconds >= 0 and hold_seconds <= min_seconds {
+                    set active = true
+                    set next_at = elapsed()
+                    call gui_set_text("toggle", "Stop")
+                    log "Auto-presser started"
+                } else {
+                    notify "Enter positive intervals (minimum <= maximum) and a non-negative hold no longer than the minimum interval."
+                }
+            } else {
+                notify "Please enter valid numbers in all fields."
+            }
+        }
+    }
+
+    when timer every 50ms {
+        if active and elapsed() >= next_at {
+            set press_start = elapsed()
+            set next_at = press_start + min_seconds + random() * (max_seconds - min_seconds)
+            key SPACE press
+            wait hold_seconds
+            key SPACE free
+        }
+    }
+}

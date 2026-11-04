@@ -11,6 +11,7 @@
 
 #include "ast.hpp"
 #include "backends.hpp"
+#include "gui.hpp"
 #include "input.hpp"
 #include "scheduler.hpp"
 
@@ -107,6 +108,8 @@ private:
                      const std::vector<std::string>& pending_modifiers, bool add_shift);
     void send_char(char c, const std::vector<std::string>& active_modifiers,
                    const std::vector<std::string>& pending_modifiers);
+    Task gui_loop(GuiHost* host);
+    void dispatch_gui_event(const GuiHost::Event& event);
     Task glide(int x, int y, double duration);
     Task timer_loop(const Node& event, double interval);
     Task signal_loop(int fd);
@@ -143,6 +146,7 @@ private:
     std::set<std::string> disabled_hotkeys_;
     std::set<std::string> suspended_exempt_hotkeys_;
     std::map<std::string, int> active_hotkey_downs_;
+    std::vector<std::unique_ptr<GuiHost>> gui_hosts_;
     std::vector<Task::handle_type> background_;
     std::string panic_key_;
     double started_at_ = 0.0;

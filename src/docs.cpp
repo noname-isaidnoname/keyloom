@@ -36,7 +36,7 @@ Syntax rules
 
 * A file contains one `loom "name" { ... }` block.
 * Top-level declarations are `option name = value`, `remap key SOURCE to TARGET`,
-  and `when ... { ... }`.
+  `gui "title" { ... }`, and `when ... { ... }`.
 * Blocks use braces. Each action occupies one line; comments begin with #.
 * Strings use single or double quotes. Escape sequences include \\, \n, \t.
 * Durations: 25ms, 0.5s, 2m, 1h. A bare number in a duration position means seconds.
@@ -54,6 +54,27 @@ Event triggers
     when mouse left stays held every 80ms { ... }
     when timer every 2s { ... }        # periodic event
     when app starts { ... }            # one time at runtime start
+    when gui BUTTON clicked { ... }    # persistent panel button
+    when gui window closes { ... }     # handle a panel close
+
+Persistent GUI panels
+---------------------
+
+    gui "Settings" {
+        label "Interval:"
+        input interval = "1.0"
+        button apply = "Apply"
+    }
+    when gui apply clicked {
+        log gui_value("interval")
+        call gui_set_text("apply", "Applied")
+    }
+
+Panels use X11 or Xwayland. Inputs and buttons have unique script-wide IDs.
+`gui_value(id)` reads an input, `gui_set_text(id, text)` updates an input or
+button, and `gui_set_visible(title, boolean)` shows or hides a panel. Closing a
+panel stops the script unless a `when gui window closes` handler is declared.
+The GUI is non-modal; timers and input continue while it is open.
 
 Mouse events read the BTN_* buttons on /dev/input/event* mice. Buttons are
 left, right, middle, side, and extra. Keyloom observes a mouse in coexistence
@@ -120,7 +141,7 @@ Actions
     type "Hello from Keyloom"      # type text via selected output backend
     send "hello{enter}"            # AHK-style text and key tokens
     scroll 0, -3                   # vertical/horizontal wheel (needs /dev/uinput)
-    wait 150ms
+    wait 150ms                    # or wait an expression in seconds
 
     log "diagnostic message"
     notify "automation step complete"  # desktop notification if notify-send exists
@@ -154,7 +175,8 @@ random(), randint(low, high), elapsed(), key_down("A"), mouse_held("left"),
 screen_width(), screen_height(), active_window_title(), active_window_class(),
 active_window_process(), active_window_pid(), gui_alert("text"), gui_input("label"),
 gui_confirm("question"), suspend_hotkeys(true), hotkeys_suspended(),
-set_hotkey_enabled("F8", false), hotkey_enabled("F8"). The
+set_hotkey_enabled("F8", false), hotkey_enabled("F8"), is_number(value),
+gui_value(id), gui_set_text(id, text), gui_set_visible(title, boolean). The
 screen_width/screen_height variables are also available without parentheses.
 Use `call gui_alert("done")` and `call set_hotkey_enabled("F8", false)` when the
 function only performs an action and produces no useful value.
@@ -256,7 +278,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
         {"events",
          {"when key NAME goes down", "when key NAME goes up", "when key NAME stays held every DURATION",
           "when mouse BUTTON goes down", "when mouse BUTTON goes up",
-          "when mouse BUTTON stays held every DURATION", "when timer every DURATION", "when app starts"}},
+          "when mouse BUTTON stays held every DURATION", "when timer every DURATION", "when app starts",
+          "when gui BUTTON clicked", "when gui window closes"}},
         {"pointer",
          {"cursor warp X, Y", "cursor move DX, DY", "cursor glide X, Y over DURATION",
           "cursor center"}},
@@ -267,6 +290,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
          {"key KEY_OR_CHORD press", "key KEY_OR_CHORD free", "key KEY_OR_CHORD tap [for DURATION]",
           "type STRING", "send STRING"}},
         {"remap", {"remap key SOURCE to TARGET"}},
+        {"gui", {"gui TITLE { label TEXT; input ID = TEXT; button ID = TEXT }",
+                 "gui_value(ID)", "gui_set_text(ID, TEXT)", "gui_set_visible(TITLE, BOOL)"}},
         {"ahk",
          {"remap key SOURCE to TARGET", "send STRING", "active_window_title()",
           "active_window_class()", "active_window_process()", "active_window_pid()",
@@ -285,7 +310,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
           "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width",
           "screen_height", "active_window_title", "active_window_class", "active_window_process",
           "active_window_pid", "gui_alert", "gui_input", "gui_confirm", "suspend_hotkeys",
-          "hotkeys_suspended", "set_hotkey_enabled", "hotkey_enabled"}},
+          "hotkeys_suspended", "set_hotkey_enabled", "hotkey_enabled", "is_number",
+          "gui_value", "gui_set_text", "gui_set_visible"}},
     };
     return table;
 }

@@ -249,6 +249,26 @@ when app starts {
 
 `gui_alert`, `gui_input` and `gui_confirm` use the first available tool from `zenity`, `kdialog` and `yad`. They are modal MsgBox/InputBox equivalents, not a modeless AHK `Gui` object model. Closing an input returns `""`; declining or cancelling a confirmation returns `false`.
 
+### Persistent GUI panels
+
+For controls that stay open while automation runs, declare a panel and handle button clicks:
+
+```loom
+loom "panel-demo" {
+    gui "Settings" {
+        label "Interval in seconds:"
+        input interval = "1.0"
+        button apply = "Apply"
+    }
+    when gui apply clicked {
+        log "Interval: " + gui_value("interval")
+        call gui_set_text("apply", "Applied")
+    }
+}
+```
+
+`gui_value("interval")` reads an input; `gui_set_text(id, text)` updates an input or button, and `gui_set_visible(title, bool)` shows or hides a panel. Widget IDs are unique across panels. Closing a panel stops the script unless a `when gui window closes` handler is declared. Panels use X11 or Xwayland; their events share Keyloom's scheduler, so timers keep running while the panel is open. See `examples/antiafk.loom` for a persistent Start/Stop control and editable timing fields. This is a small panel API, not full AHK GUI compatibility.
+
 ### Runtime hotkey control
 
 ```loom

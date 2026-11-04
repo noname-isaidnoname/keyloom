@@ -76,6 +76,15 @@ int main(int argc, char** argv) {
             XSendEvent(display, window, False, KeyPressMask, &event);
             send = true;
         }
+    } else if (kind == "close" && argc == 3) {
+        event.xclient.type = ClientMessage;
+        event.xclient.window = window;
+        event.xclient.message_type = XInternAtom(display, "WM_PROTOCOLS", False);
+        event.xclient.format = 32;
+        event.xclient.data.l[0] = static_cast<long>(XInternAtom(display, "WM_DELETE_WINDOW", False));
+        event.xclient.data.l[1] = CurrentTime;
+        XSendEvent(display, window, False, NoEventMask, &event);
+        send = true;
     } else {
         usage();
     }

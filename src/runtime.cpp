@@ -504,6 +504,13 @@ Task Runtime::run_body() {
     panic_key_ = lower_ascii(panic_text) == "none" ? std::string() : canonical_key(panic_text);
     consumed_keys_ = collect_consumed_keys();
 
+    for (const auto& panel : script_.panels) {
+        auto host = GuiHost::create(panel);
+        host->set_event_handler([this](const GuiHost::Event& event) { dispatch_gui_event(event); });
+        gui_hosts_.push_back(std::move(host));
+    }
+    for (auto& host : gui_hosts_) spawn_background(gui_loop(host.get()));
+
     sigset_t mask;
     sigset_t previous_mask;
     sigemptyset(&mask);
@@ -689,6 +696,27 @@ Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
         }
         process_events(events, passthrough, path);
     }
+}
+
+Task Runtime::gui_loop(GuiHost* host) {
+    while (host != nullptr && !host->is_closed() && !scheduler_.stop_requested()) {
+        host->process_events();
+        if (host->is_closed() || scheduler_.stop_requested()) break;
+        co_await readable(host->fd());
+    }
+}
+
+void Runtime::dispatch_gui_event(const GuiHost::Event& event) {
+    const std::string edge = event.kind == GuiHost::EventKind::Click ? "clicked" : "close";
+    const std::string key = event.kind == GuiHost::EventKind::Click ? event.widget_id : "window";
+    bool handled = false;
+    for (const auto& candidate : script_.events) {
+        if (candidate.event_kind == "gui" && candidate.event_key == key && candidate.edge == edge) {
+            handled = true;
+            spawn_background(safe_dispatch(candidate, key, edge));
+        }
+    }
+    if (!handled && event.kind == GuiHost::EventKind::Close) scheduler_.request_stop();
 }
 
 void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path) {
@@ -908,7 +936,11 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             backend_->type_text(eval(node.exprs.at(0), context).to_string());
             break;
         case StmtKind::Wait:
-            co_await sleep_for(node.duration);
+            {
+                const double seconds = node.exprs.empty() ? node.duration : eval(node.exprs.at(0), context).as_double();
+                if (!std::isfinite(seconds) || seconds < 0) throw RuntimeErrorKeyloom("wait duration must be finite and non-negative");
+                co_await sleep_for(seconds);
+            }
             break;
         case StmtKind::Scroll: {
             const int x = static_cast<int>(eval(node.exprs.at(0), context).as_int());
@@ -1443,6 +1475,17 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         require(1);
         return Value::of_float(args[0].as_double());
     }
+    if (name == "is_number") {
+        require(1);
+        try {
+            const std::string value = trim_ascii(args[0].to_string());
+            size_t used = 0;
+            const double number = std::stod(value, &used);
+            return Value::of_bool(used == value.size() && std::isfinite(number));
+        } catch (const std::exception&) {
+            return Value::of_bool(false);
+        }
+    }
     if (name == "str") {
         require(1);
         return Value::of_str(args[0].to_string());
@@ -1522,6 +1565,47 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const bool suspended = suspended_hotkeys_ &&
                                suspended_exempt_hotkeys_.find(id) == suspended_exempt_hotkeys_.end();
         return Value::of_bool(!disabled && !suspended);
+    }
+    const auto find_gui_widget = [&](const std::string& raw_id) -> GuiHost* {
+        const std::string id = lower_ascii(trim_ascii(raw_id));
+        for (auto& host : gui_hosts_) {
+            if (host->has_widget(id)) return host.get();
+        }
+        return nullptr;
+    };
+    if (name == "gui_value") {
+        require(1);
+        const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
+        GuiHost* host = find_gui_widget(id);
+        if (host == nullptr) {
+            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        }
+        return Value::of_str(host->value(id));
+    }
+    if (name == "gui_set_text") {
+        require(2);
+        const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
+        GuiHost* host = find_gui_widget(id);
+        if (host == nullptr) {
+            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        }
+        host->set_text(id, args[1].to_string());
+        return Value::of_bool(true);
+    }
+    if (name == "gui_set_visible") {
+        require(2);
+        const std::string title = trim_ascii(args[0].to_string());
+        bool found = false;
+        for (auto& host : gui_hosts_) {
+            if (host->title() == title) {
+                host->set_visible(args[1].truthy());
+                found = true;
+            }
+        }
+        if (!found) {
+            throw RuntimeErrorKeyloom("GUI panel " + py_repr_string(title) + " is not declared in a gui block.");
+        }
+        return Value::of_bool(true);
     }
     if (name == "active_window_title") {
         require(0);

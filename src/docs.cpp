@@ -242,6 +242,17 @@ compositor; the user needs permission to read the intended input devices.
 Prefer a udev rule or an `input` group membership over running the program as
 root. Mouse buttons are observed without an EVIOCGRAB, unlike `consume key`,
 which grabs keyboards to withhold a key.
+Release all keys and buttons before starting a consuming or remapping script,
+and avoid typing during startup. Keyloom refuses a grab when it detects a held
+input before grabbing or queued input during the handoff. A press just before
+the grab can still have its release intercepted; if a key appears stuck after
+a failed grab, physically tap and release it. The error identifies observed
+releases; Keyloom does not inject replacements. For observed devices, held keys initialize
+`key_down()` without firing a binding, including on their first release.
+After an evdev queue overflow, Keyloom discards events through the next sync
+report and reconciles pressed keys against the kernel snapshot. Lost individual
+transitions and relative motion cannot be recovered. A failed snapshot stops
+the runtime rather than continuing with unreliable key state.
 
 For output, `ydotool` + `ydotoold` is the recommended Wayland/Xwayland
 backend for keyboard output. ydotool 1.0.x's `mousemove --absolute` is not a
@@ -298,7 +309,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
           "gui_alert(MESSAGE [, TITLE])", "gui_input(PROMPT [, DEFAULT [, TITLE]])",
           "gui_confirm(QUESTION [, TITLE])", "suspend_hotkeys(BOOL)", "hotkeys_suspended()",
           "set_hotkey_enabled(NAME, BOOL)", "hotkey_enabled(NAME)"}},
-        {"input", {"consume key NAME"}},
+        {"input", {"consume key NAME (release held inputs before startup)"}},
         {"desktop",
          {"scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR",
           "launch EXPR (allow_launch=true required)"}},

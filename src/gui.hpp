@@ -7,15 +7,8 @@
 #include <string>
 #include <vector>
 
-struct _XDisplay;
-using Display = _XDisplay;
-using Atom = unsigned long;
-using Window = unsigned long;
-using Font = unsigned long;
-struct _XGC;
-using GC = _XGC*;
-
 #include "ast.hpp"
+#include "xcb_connection.hpp"
 
 namespace keyloom {
 
@@ -74,16 +67,24 @@ private:
     int widget_index_at(int x, int y) const;
     void focus_input(int index);
     void redraw_if_open_locked();
+    bool connection_lost_locked() const;
     std::string clipped_text(const std::string& text, int max_width) const;
 
-    const GuiPanel& panel_;
-    Display* display_ = nullptr;
-    Window window_ = 0;
-    Atom wm_delete_window_ = 0;
-    Atom net_wm_state_ = 0;
-    Atom net_wm_state_above_ = 0;
-    GC gc_ = 0;
-    Font font_ = 0;
+    GuiPanel panel_;
+    std::unique_ptr<XcbConnection> connection_;
+    xcb_window_t window_ = 0;
+    xcb_atom_t wm_protocols_ = 0;
+    xcb_atom_t wm_delete_window_ = 0;
+    xcb_atom_t net_wm_state_ = 0;
+    xcb_atom_t net_wm_state_above_ = 0;
+    xcb_gcontext_t gc_ = 0;
+    xcb_font_t font_ = 0;
+    int font_width_ = 8;
+    int font_ascent_ = 10;
+    int font_descent_ = 3;
+    int min_keycode_ = 0;
+    int keysyms_per_keycode_ = 0;
+    std::vector<xcb_keysym_t> keysyms_;
     unsigned long background_ = 0;
     unsigned long foreground_ = 0;
     unsigned long control_ = 0;

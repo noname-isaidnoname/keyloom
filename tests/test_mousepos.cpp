@@ -7,11 +7,46 @@
 
 #include "cli.hpp"
 #include "mousepos.hpp"
+#include "picker_image.hpp"
 
 using namespace keyloom;
 
 TEST_CASE(coordinate_format_matches_loom_syntax) {
     CHECK_EQ(format_coordinates(640, 420), std::string("640, 420"));
+}
+
+TEST_CASE(picker_pixels_convert_rgb565_in_both_byte_orders) {
+    const std::vector<unsigned char> rgba{255, 0, 0, 255, 0, 0, 255, 255};
+    PickerPixelFormat format{16, 32, true, 0xf800, 0x07e0, 0x001f};
+    auto result = convert_picker_pixels(rgba, 2, 1, 2, 1, format);
+    CHECK_EQ(result.stride, 4);
+    CHECK_TRUE(result.bytes == std::vector<uint8_t>({0x00, 0xf8, 0x1f, 0x00}));
+    format.least_significant_byte_first = false;
+    result = convert_picker_pixels(rgba, 2, 1, 2, 1, format);
+    CHECK_TRUE(result.bytes == std::vector<uint8_t>({0xf8, 0x00, 0x00, 0x1f}));
+}
+
+TEST_CASE(picker_pixels_respect_padding_and_nearest_neighbor_scaling) {
+    const std::vector<unsigned char> rgba{255, 0, 0, 255, 0, 0, 255, 255};
+    PickerPixelFormat format{24, 32, false, 0xff0000, 0x00ff00, 0x0000ff};
+    const auto result = convert_picker_pixels(rgba, 2, 1, 3, 1, format);
+    CHECK_EQ(result.stride, 12);
+    CHECK_TRUE(result.bytes == std::vector<uint8_t>({255, 0, 0, 255, 0, 0, 0, 0, 255, 0, 0, 0}));
+    format.bits_per_pixel = 32;
+    format.least_significant_byte_first = true;
+    const auto little = convert_picker_pixels(rgba, 2, 1, 2, 1, format);
+    CHECK_TRUE(little.bytes == std::vector<uint8_t>({0, 0, 255, 0, 255, 0, 0, 0}));
+}
+
+TEST_CASE(picker_pixels_reject_invalid_sizes_and_formats) {
+    const std::vector<unsigned char> rgba{255, 0, 0, 255};
+    PickerPixelFormat format{16, 32, true, 0xf800, 0x07e0, 0x001f};
+    CHECK_THROWS(convert_picker_pixels(rgba, 2, 1, 2, 1, format), PickerError);
+    CHECK_THROWS(convert_picker_pixels(rgba, 1, 1, 0, 1, format), PickerError);
+    format.green_mask = format.red_mask;
+    CHECK_THROWS(convert_picker_pixels(rgba, 1, 1, 1, 1, format), PickerError);
+    format.bits_per_pixel = 8;
+    CHECK_THROWS(convert_picker_pixels(rgba, 1, 1, 1, 1, format), PickerError);
 }
 
 TEST_CASE(tooltip_prefers_below_and_right) {

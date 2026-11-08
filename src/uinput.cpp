@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <exception>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
@@ -11,6 +12,7 @@
 #include <unistd.h>
 
 #include "errors.hpp"
+#include "unique_fd.hpp"
 
 namespace keyloom {
 namespace {
@@ -81,8 +83,10 @@ UInputDevice::UInputDevice(const std::string& name, const std::string& phys, con
                            const std::vector<int>& relative, const std::vector<AbsAxis>& absolute) {
     check_device_node();
 
-    fd_ = ::open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd_ < 0) throw_ioctl("open");
+    UniqueFd fd(::open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC));
+    if (fd.get() < 0) throw_ioctl("open");
+    // Keep ownership local until every setup operation has succeeded.
+    fd_ = fd.get();
 
     if (::ioctl(fd_, UI_SET_EVBIT, EV_KEY) < 0) throw_ioctl("UI_SET_EVBIT EV_KEY");
     if (!relative.empty() && ::ioctl(fd_, UI_SET_EVBIT, EV_REL) < 0) throw_ioctl("UI_SET_EVBIT EV_REL");
@@ -108,9 +112,12 @@ UInputDevice::UInputDevice(const std::string& name, const std::string& phys, con
     if (::ioctl(fd_, UI_DEV_SETUP, &setup) < 0) throw_ioctl("UI_DEV_SETUP");
     if (::ioctl(fd_, UI_DEV_CREATE) < 0) throw_ioctl("UI_DEV_CREATE");
     wait_for_reader(fd_);
+    (void)fd.release();
 }
 
-UInputDevice::~UInputDevice() { close(); }
+UInputDevice::~UInputDevice() {
+    try { close(); } catch (...) {}
+}
 
 void UInputDevice::write(int type, int code, int value) {
     if (fd_ < 0) return;
@@ -124,31 +131,35 @@ void UInputDevice::write(int type, int code, int value) {
     if (buffer_.size() >= sizeof(input_event) * 64) flush();
 }
 
-void UInputDevice::flush() {
-    if (fd_ < 0 || buffer_.empty()) return;
+void flush_uinput_buffer(int fd, std::vector<unsigned char>& buffer, const UInputWriter& writer) {
     size_t written = 0;
-    while (written < buffer_.size()) {
-        const ssize_t count = ::write(fd_, buffer_.data() + written, buffer_.size() - written);
+    while (written < buffer.size()) {
+        const ssize_t count = writer(fd, buffer.data() + written, buffer.size() - written);
         if (count > 0) {
             written += static_cast<size_t>(count);
             continue;
         }
         if (count < 0 && errno == EINTR) continue;
-        if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
-            // uinput drains quickly; a short spin keeps report ordering intact.
-            continue;
-        }
-        break;
+        const int error = count == 0 ? EIO : errno;
+        buffer.erase(buffer.begin(), buffer.begin() + static_cast<std::ptrdiff_t>(written));
+        throw BackendError("uinput write failed: " + std::string(std::strerror(error)));
     }
-    buffer_.clear();
+    buffer.clear();
+}
+
+void UInputDevice::flush() {
+    if (fd_ < 0 || buffer_.empty()) return;
+    flush_uinput_buffer(fd_, buffer_, ::write);
 }
 
 void UInputDevice::close() {
     if (fd_ < 0) return;
-    flush();
+    std::exception_ptr failure;
+    try { flush(); } catch (...) { failure = std::current_exception(); }
     ::ioctl(fd_, UI_DEV_DESTROY);
     ::close(fd_);
     fd_ = -1;
+    if (failure) std::rethrow_exception(failure);
 }
 
 std::unique_ptr<VirtualInput> create_uinput_from_capabilities(const std::string& name, const std::string& phys,

@@ -1,6 +1,6 @@
 # Keyloom
 
-**Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is a native C++20 binary with no runtime dependencies beyond the C++ standard library and X11/libpng (used by the mouse-position picker). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`. It is designed for Xorg, Xwayland and native Wayland sessions.
+**Keyloom** is a Linux-first desktop automation language with its own readable syntax, static checker, CLI and runtime. It is a native C++20 binary using X11, XCB and libpng libraries for desktop integration. Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`. It is designed for Xorg, Xwayland and native Wayland sessions.
 
 - Global physical keyboard input: evdev ioctls on `/dev/input/event*`.
 - Native remapping, AHK-style `send` syntax, active-window queries, modal GUI dialogs and runtime hotkey suspension.
@@ -16,16 +16,16 @@ The runtime drives devices, timers and dispatch from a single epoll-based event 
 
 ## Quick start
 
-You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, X11 and libpng development headers. Debian/Ubuntu:
+You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, X11, XCB and libpng development headers. Debian/Ubuntu:
 
 ```bash
-sudo apt install cmake ninja-build pkg-config libx11-dev libpng-dev
+sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev
 ```
 
 Arch:
 
 ```bash
-sudo pacman -S cmake ninja pkgconf libx11 libpng
+sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng
 ```
 
 Build and install:
@@ -77,6 +77,8 @@ Change the four coordinates to your own desktop. If A and D overlap, the left mo
 ## Wayland and Xwayland setup
 
 Keyloom reads physical keyboard events through evdev rather than trying to install a global X11 hotkey listener. This is important on Wayland, where applications normally cannot globally observe arbitrary keyboard input through Xwayland.
+
+If the evdev event queue overflows, Keyloom discards events through the next synchronization report and reconciles pressed keys against the kernel's current state. Individual lost key transitions and relative motion cannot be reconstructed; if the key-state query fails, the runtime stops instead of continuing with unreliable state.
 
 ### 1. Install system packages
 
@@ -186,6 +188,8 @@ Run `keyloom --docs` for the full syntax and API guide. Topics for `--docs` incl
 ## Consuming keys
 
 `consume key A` keeps a key from reaching applications. It is a script-wide declaration, so place it in any event block; it takes effect at startup and swallows the key-down, autorepeat, and key-up. Keyloom grabs the physical keyboard exclusively and replays every other event through a virtual `uinput` device, so `/dev/uinput` must be writable and the panic key always passes through.
+
+Release all keys and buttons before starting a script that consumes or remaps keys, and avoid typing during startup. Keyloom checks for held inputs before each grab and aborts if it detects queued input during the handoff. This reduces, but cannot eliminate, races: a press delivered to the desktop just before the grab may have its release intercepted before rollback. When it observes intercepted releases, the error identifies the affected inputs; it does not inject replacement releases. If a key appears stuck after a failed grab, physically tap and release that key. For devices that are only observed, already-held keys initialize `key_down()` state without firing bindings; their first release also does not trigger an up binding.
 
 For a straight replacement such as Q -> Space, use `remap key Q to SPACE` instead of a trigger block plus `consume`. The remap source is script-wide, consumed on the same terms, and cannot be the panic key.
 

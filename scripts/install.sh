@@ -18,15 +18,16 @@ for tool in cmake ninja pkg-config; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if ! pkg-config --exists x11 2>/dev/null; then missing+=("libx11-dev (x11)"); fi
+if ! pkg-config --exists xcb 2>/dev/null; then missing+=("libxcb1-dev (xcb)"); fi
 if ! pkg-config --exists libpng 2>/dev/null; then missing+=("libpng-dev (libpng)"); fi
 if (( ${#missing[@]} )); then
     cat >&2 <<EOF
 Missing build dependencies: ${missing[*]}
 
 Debian/Ubuntu:
-    sudo apt install cmake ninja-build pkg-config libx11-dev libpng-dev
+    sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev
 Arch:
-    sudo pacman -S cmake ninja pkgconf libx11 libpng
+    sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng
 
 Runtime (not needed to build): ydotool + ydotoold, or a writable /dev/uinput.
 EOF

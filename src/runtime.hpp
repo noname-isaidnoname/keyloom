@@ -1,6 +1,7 @@
 #pragma once
 
 #include <exception>
+#include <functional>
 #include <map>
 #include <memory>
 #include <random>
@@ -50,7 +51,7 @@ public:
 
     /// Dispatch one event block, used by tests to exercise statements without
     /// opening devices.
-    Task run_event(const Node& event, std::string key = std::string(),
+    Task run_event(Node event, std::string key = std::string(),
                          std::string edge = std::string());
 
     // ---- seams shared with the CLI and the tests ----
@@ -72,8 +73,11 @@ public:
     void hold_key(const std::string& name);
     void free_key(const std::string& name);
     void physical_key(const std::string& path, const std::string& key, bool down);
-    void process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path);
-    Task held_loop(const Node& event, std::string key, double interval);
+    void seed_device_keys(const std::string& path, const std::vector<int>& codes);
+    void disconnect_device(const std::string& path);
+    void process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path,
+                        const std::function<std::vector<int>()>& snapshot = {});
+    Task held_loop(Node event, std::string key, double interval);
 
 private:
     struct EventContext {
@@ -98,7 +102,7 @@ private:
     void prune_background();
 
     Task run_body();
-    Task read_device(InputDevice* device, EventSink* passthrough);
+    Task read_device(InputDevice* device, std::shared_ptr<PassthroughDevice> passthrough);
     Task dispatch(const Node& event, std::string key, std::string edge);
     Task safe_dispatch(const Node& event, std::string key, std::string edge);
     Task execute_nodes(const std::vector<Node>& nodes, const EventContext& context);
@@ -112,7 +116,7 @@ private:
     void dispatch_gui_event(const GuiHost::Event& event);
     Task glide(int x, int y, double duration);
     Task timer_loop(const Node& event, double interval);
-    Task signal_loop(int fd);
+    Task signal_loop(int fd, std::shared_ptr<void> signal_owner);
 
     Value eval(const ExprPtr& expr, const EventContext& context);
     Value call_function(const std::string& name, std::vector<Value> args, const EventContext& context);
@@ -134,6 +138,8 @@ private:
     std::map<std::string, Value> variables_;
     std::set<std::string> pressed_keys_;
     std::map<std::string, std::set<std::string>> device_down_;
+    std::map<std::string, std::set<int>> device_raw_down_;
+    std::set<std::string> desynchronized_devices_;
     std::set<std::string> consumed_keys_;
     std::vector<std::unique_ptr<InputDevice>> devices_;
     std::map<std::string, std::string> held_tokens_;
@@ -145,7 +151,7 @@ private:
     bool suspended_hotkeys_ = false;
     std::set<std::string> disabled_hotkeys_;
     std::set<std::string> suspended_exempt_hotkeys_;
-    std::map<std::string, int> active_hotkey_downs_;
+    std::map<std::string, std::vector<const Node*>> active_hotkey_ups_;
     std::vector<std::unique_ptr<GuiHost>> gui_hosts_;
     std::vector<Task::handle_type> background_;
     std::string panic_key_;

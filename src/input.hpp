@@ -1,12 +1,35 @@
 #pragma once
 
 #include <memory>
+#include <functional>
+#include <set>
 #include <string>
 #include <vector>
 
 #include "uinput.hpp"
 
 namespace keyloom {
+
+class EventSink;
+
+struct PendingInput {
+    bool any = false;
+    bool synchronization_lost = false;
+    std::set<int> released_codes;
+};
+
+/// Drain a nonblocking evdev-compatible stream, retaining release information.
+PendingInput drain_input_events(int fd);
+
+/// Stop replay before returning the physical device to other consumers.
+/// Every cleanup step is attempted, even if an earlier one fails.
+void release_input_capture(EventSink* sink, const std::function<void()>& ungrab,
+                           const std::function<void()>& close_device);
+
+/// Grab only an idle device, and roll back if events appeared during the grab.
+void grab_idle_input(const std::function<std::vector<int>()>& snapshot,
+                     const std::function<PendingInput()>& discard_pending,
+                     const std::function<void()>& grab, const std::function<void()>& ungrab);
 
 /// A physical /dev/input/eventN device.
 class InputDevice {
@@ -29,6 +52,10 @@ public:
     bool is_keyboard_device() const;
 
     const DeviceCapabilities& capabilities() const { return capabilities_; }
+    /// Snapshot currently pressed EV_KEY codes after an evdev queue overrun.
+    std::vector<int> pressed_key_codes() const;
+    /// Drain this client's queued events, preserving release information for diagnostics.
+    PendingInput discard_pending_events();
 
     void grab();
     void ungrab();

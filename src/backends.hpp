@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -135,7 +136,8 @@ public:
 
 private:
     std::unique_ptr<VirtualInput> device_;
-    std::vector<int> down_keys_;
+    std::set<int> down_keys_;
+    std::set<int> pending_releases_;
 };
 
 std::unique_ptr<OutputBackend> choose_backend(const std::string& name, int width, int height);

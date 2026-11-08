@@ -1,10 +1,16 @@
 #include "harness.hpp"
 
 #include <algorithm>
+#include <cerrno>
+#include <fcntl.h>
 #include <linux/input.h>
+#include <unistd.h>
 #include <vector>
 
 #include "backends.hpp"
+#include "errors.hpp"
+#include "unique_fd.hpp"
+#include "xcb_connection.hpp"
 
 using namespace keyloom;
 
@@ -55,4 +61,39 @@ TEST_CASE(uinput_pointer_capabilities_are_only_pointer_buttons) {
     CHECK_TRUE(contains(keys, BTN_EXTRA));
     CHECK_TRUE(!contains(keys, KEY_A));
     CHECK_TRUE(!contains(keys, BTN_TOOL_PEN));
+}
+
+TEST_CASE(uinput_flush_reports_failure_and_retains_only_unwritten_bytes) {
+    std::vector<unsigned char> buffer{1, 2, 3, 4};
+    int calls = 0;
+    UInputWriter writer = [&calls](int, const void*, size_t) -> ssize_t {
+        ++calls;
+        if (calls == 1) return 2;
+        errno = EAGAIN;
+        return -1;
+    };
+    CHECK_THROWS(flush_uinput_buffer(1, buffer, writer), BackendError);
+    CHECK_TRUE(buffer == std::vector<unsigned char>({3, 4}));
+    flush_uinput_buffer(1, buffer, [](int, const void*, size_t size) -> ssize_t {
+        return static_cast<ssize_t>(size);
+    });
+    CHECK_TRUE(buffer.empty());
+}
+
+TEST_CASE(unique_fd_closes_descriptor_on_setup_exception) {
+    int fds[2];
+    CHECK_EQ(::pipe(fds), 0);
+    try {
+        UniqueFd owned(fds[0]);
+        throw BackendError("injected setup failure");
+    } catch (const BackendError&) {
+    }
+    errno = 0;
+    CHECK_EQ(::fcntl(fds[0], F_GETFD), -1);
+    CHECK_EQ(errno, EBADF);
+    ::close(fds[1]);
+}
+
+TEST_CASE(xcb_connection_reports_invalid_display) {
+    CHECK_THROWS(XcbConnection("invalid-keyloom-display"), RuntimeErrorKeyloom);
 }

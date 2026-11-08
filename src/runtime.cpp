@@ -27,6 +27,32 @@
 namespace keyloom {
 namespace {
 
+struct SignalScope {
+    sigset_t previous{};
+    int fd = -1;
+
+    SignalScope() {
+        sigset_t mask;
+        sigemptyset(&mask);
+        sigaddset(&mask, SIGINT);
+        sigaddset(&mask, SIGTERM);
+        if (::sigprocmask(SIG_BLOCK, &mask, &previous) < 0)
+            throw RuntimeErrorKeyloom("cannot block signals: " + std::string(std::strerror(errno)));
+        fd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
+        if (fd < 0) {
+            const int error = errno;
+            ::sigprocmask(SIG_SETMASK, &previous, nullptr);
+            throw RuntimeErrorKeyloom("cannot create signal fd: " + std::string(std::strerror(error)));
+        }
+    }
+    ~SignalScope() {
+        if (fd >= 0) ::close(fd);
+        ::sigprocmask(SIG_SETMASK, &previous, nullptr);
+    }
+    SignalScope(const SignalScope&) = delete;
+    SignalScope& operator=(const SignalScope&) = delete;
+};
+
 const char* py_type_name(const Value& value) {
     switch (value.type) {
         case Value::Type::Int: return "int";
@@ -357,7 +383,16 @@ Runtime::Runtime(Script script, Options options)
     random_engine_.seed(seed);
 }
 
-Runtime::~Runtime() = default;
+Runtime::~Runtime() {
+    scheduler_.shutdown();
+    release_all_holds();
+    if (backend_) {
+        try {
+            backend_->close();
+        } catch (const std::exception&) {
+        }
+    }
+}
 
 void Runtime::say(const std::string& message) { std::cout << "[keyloom] " << message << '\n' << std::flush; }
 
@@ -466,7 +501,10 @@ bool Runtime::is_consumed_key_event(int type, int code) const {
     return consumed_keys_.find(key) != consumed_keys_.end();
 }
 
-Task Runtime::signal_loop(int fd) {
+Task Runtime::signal_loop(int fd, std::shared_ptr<void> signal_owner) {
+    // Retain the fd and its signal mask for the entire task, even if its
+    // spawning coroutine finishes unexpectedly.
+    (void)signal_owner;
     while (true) {
         co_await readable(fd);
         signalfd_siginfo info{};
@@ -486,44 +524,39 @@ Task Runtime::run() {
     }
 }
 
-Task Runtime::run_event(const Node& event, std::string key, std::string edge) {
+Task Runtime::run_event(Node event, std::string key, std::string edge) {
     // Goes through safe_dispatch so a failing event behaves exactly as it does
     // when a real binding fires: the error is reported and the run stops.
     co_await safe_dispatch(event, std::move(key), std::move(edge));
 }
 
 Task Runtime::run_body() {
-    if (::access("/proc", F_OK) != 0) {
-        throw RuntimeErrorKeyloom("Keyloom's live runtime is Linux-only.");
-    }
-    backend_ = select_backend();
-    running_ = true;
-
-    std::string panic_text = "PAUSE";
-    if (const Value* panic = script_.option("panic")) panic_text = panic->to_string();
-    panic_key_ = lower_ascii(panic_text) == "none" ? std::string() : canonical_key(panic_text);
-    consumed_keys_ = collect_consumed_keys();
-
-    for (const auto& panel : script_.panels) {
-        auto host = GuiHost::create(panel);
-        host->set_event_handler([this](const GuiHost::Event& event) { dispatch_gui_event(event); });
-        gui_hosts_.push_back(std::move(host));
-    }
-    for (auto& host : gui_hosts_) spawn_background(gui_loop(host.get()));
-
-    sigset_t mask;
-    sigset_t previous_mask;
-    sigemptyset(&mask);
-    sigaddset(&mask, SIGINT);
-    sigaddset(&mask, SIGTERM);
-    ::sigprocmask(SIG_BLOCK, &mask, &previous_mask);
-    const int signal_fd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
-    if (signal_fd >= 0) spawn_background(signal_loop(signal_fd));
-
     std::exception_ptr failure;
-    std::vector<std::unique_ptr<PassthroughDevice>> passthroughs;
+    std::vector<std::shared_ptr<PassthroughDevice>> passthroughs;
+    std::shared_ptr<SignalScope> signals;
     try {
-        bool has_key_events = false;
+        if (::access("/proc", F_OK) != 0) {
+            throw RuntimeErrorKeyloom("Keyloom's live runtime is Linux-only.");
+        }
+        if (!backend_) backend_ = select_backend();
+        running_ = true;
+
+        std::string panic_text = "PAUSE";
+        if (const Value* panic = script_.option("panic")) panic_text = panic->to_string();
+        panic_key_ = lower_ascii(panic_text) == "none" ? std::string() : canonical_key(panic_text);
+        consumed_keys_ = collect_consumed_keys();
+
+        for (const auto& panel : script_.panels) {
+            auto host = GuiHost::create(panel);
+            host->set_event_handler([this](const GuiHost::Event& event) { dispatch_gui_event(event); });
+            gui_hosts_.push_back(std::move(host));
+        }
+        for (auto& host : gui_hosts_) spawn_background(gui_loop(host.get()));
+
+        signals = std::make_shared<SignalScope>();
+        spawn_background(signal_loop(signals->fd, signals));
+
+        bool has_key_events = !script_.remaps.empty() || !consumed_keys_.empty();
         bool has_mouse_events = false;
         for (const auto& event : script_.events) {
             if (event.event_kind == "key") has_key_events = true;
@@ -550,7 +583,7 @@ Task Runtime::run_body() {
         }
 
         if (!devices_.empty()) {
-            std::map<std::string, EventSink*> passthrough_by_path;
+            std::map<std::string, std::shared_ptr<PassthroughDevice>> passthrough_by_path;
             if (!consumed_keys_.empty()) {
                 const std::string keys = join_sorted(consumed_keys_);
                 if (options_.dry_run) {
@@ -560,9 +593,11 @@ Task Runtime::run_body() {
                     // coexistence mode: the physical click still reaches apps.
                     for (auto& device : devices_) {
                         if (!device->is_keyboard()) continue;
-                        auto passthrough = std::make_unique<PassthroughDevice>(device->capabilities());
+                        auto passthrough = std::make_shared<PassthroughDevice>(device->capabilities());
                         try {
-                            device->grab();
+                            grab_idle_input([&device] { return device->pressed_key_codes(); },
+                                            [&device] { return device->discard_pending_events(); },
+                                            [&device] { device->grab(); }, [&device] { device->ungrab(); });
                         } catch (const std::exception& error) {
                             throw RuntimeErrorKeyloom(
                                 "Cannot grab input device " + device->path() + " (" + device->name() +
@@ -570,7 +605,7 @@ Task Runtime::run_body() {
                                 "user lacks device access. Details: " +
                                 std::string(error.what()));
                         }
-                        passthrough_by_path[device->path()] = passthrough.get();
+                        passthrough_by_path[device->path()] = passthrough;
                         passthroughs.push_back(std::move(passthrough));
                     }
                     std::string note;
@@ -581,8 +616,12 @@ Task Runtime::run_body() {
 
             for (auto& device : devices_) {
                 const auto found = passthrough_by_path.find(device->path());
-                EventSink* sink = found == passthrough_by_path.end() ? nullptr : found->second;
-                spawn_background(read_device(device.get(), sink));
+                auto sink = found == passthrough_by_path.end() ? nullptr : found->second;
+                // EVIOCGKEY drops queued key events. Do this only for observed
+                // devices; grabbed devices were checked for queued events and
+                // must retain any subsequent events for passthrough.
+                if (!sink) seed_device_keys(device->path(), device->pressed_key_codes());
+                spawn_background(read_device(device.get(), std::move(sink)));
             }
 
             std::string names;
@@ -608,25 +647,34 @@ Task Runtime::run_body() {
 
     for (const auto& handle : background_) scheduler_.cancel(handle);
     for (const auto& entry : held_tasks_) scheduler_.cancel(entry.second);
-    co_await drain();
+    while (!(co_await cleanup_drain())) {
+        // Cancellation can wake the cleanup waiter before other tasks finish.
+    }
 
+    const auto cleanup = [&failure](const auto& operation) {
+        try {
+            operation();
+        } catch (...) {
+            if (!failure) failure = std::current_exception();
+        }
+    };
     release_all_holds();
-    if (backend_) backend_->close();
-    for (auto& device : devices_) device->close();
-    devices_.clear();
-    for (auto& passthrough : passthroughs) passthrough->close();
+    if (backend_) cleanup([this] { backend_->close(); });
+    for (auto& passthrough : passthroughs) cleanup([&passthrough] { passthrough->close(); });
     passthroughs.clear();
+    for (auto& device : devices_) cleanup([&device] { device->close(); });
+    devices_.clear();
+    gui_hosts_.clear();
     held_tasks_.clear();
     background_.clear();
+    signals.reset();
+    running_ = false;
 
-    if (signal_fd >= 0) ::close(signal_fd);
-    ::sigprocmask(SIG_SETMASK, &previous_mask, nullptr);
-
-    say("Stopped; held buttons and keys released.");
+    say(failure ? "Stopped; cleanup attempted." : "Stopped; held buttons and keys released.");
     if (failure) std::rethrow_exception(failure);
 }
 
-Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
+Task Runtime::read_device(InputDevice* device, std::shared_ptr<PassthroughDevice> passthrough) {
     const std::string path = device->path();
     struct Guard {
         Runtime* runtime;
@@ -635,44 +683,25 @@ Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
         std::string path;
 
         ~Guard() {
-            std::vector<std::string> released;
-            const auto found = runtime->device_down_.find(path);
-            if (found != runtime->device_down_.end()) {
-                released.assign(found->second.begin(), found->second.end());
-                runtime->device_down_.erase(found);
+            try {
+                release_input_capture(passthrough, [this] { device->ungrab(); }, [this] { device->close(); });
+                if (!runtime->scheduler_.stop_requested()) {
+                    runtime->disconnect_device(path);
+                }
+            } catch (const std::exception& error) {
+                runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": " + error.what();
+                runtime->say(runtime->runtime_error_);
+                runtime->scheduler_.request_stop();
+            } catch (...) {
+                runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": unknown error";
+                runtime->say(runtime->runtime_error_);
+                runtime->scheduler_.request_stop();
             }
-            device->ungrab();
-            if (passthrough != nullptr) passthrough->close();
-            device->close();
-            if (runtime->scheduler_.stop_requested()) return;
-            for (const auto& key : released) {
-                bool still_down = false;
-                for (const auto& entry : runtime->device_down_) {
-                    if (entry.second.find(key) != entry.second.end()) still_down = true;
-                }
-                if (still_down || runtime->pressed_keys_.find(key) == runtime->pressed_keys_.end()) continue;
-                runtime->pressed_keys_.erase(key);
-                for (auto it = runtime->held_tasks_.begin(); it != runtime->held_tasks_.end();) {
-                    if (it->first.first == key) {
-                        runtime->scheduler_.cancel(it->second);
-                        it = runtime->held_tasks_.erase(it);
-                    } else {
-                        ++it;
-                    }
-                }
-                const auto active_down = runtime->active_hotkey_downs_.find(key);
-                if (active_down != runtime->active_hotkey_downs_.end()) {
-                    --active_down->second;
-                    if (active_down->second <= 0) runtime->active_hotkey_downs_.erase(active_down);
-                    for (const auto& event : runtime->script_.events) {
-                        if (event.edge == "up" && event_binds_key(event, key)) {
-                            runtime->spawn_background(runtime->safe_dispatch(event, key, "up"));
-                        }
-                    }
-                }
-            }
+            runtime->device_down_.erase(path);
+            runtime->device_raw_down_.erase(path);
+            runtime->desynchronized_devices_.erase(path);
         }
-    } guard{this, device, passthrough, path};
+    } guard{this, device, passthrough.get(), path};
 
     std::vector<unsigned char> buffer(sizeof(input_event) * 64);
     while (true) {
@@ -694,7 +723,7 @@ Task Runtime::read_device(InputDevice* device, EventSink* passthrough) {
         for (size_t index = 0; index < count; ++index) {
             events.push_back(RawEvent{raw[index].type, raw[index].code, raw[index].value});
         }
-        process_events(events, passthrough, path);
+        process_events(events, passthrough.get(), path, [device] { return device->pressed_key_codes(); });
     }
 }
 
@@ -719,8 +748,45 @@ void Runtime::dispatch_gui_event(const GuiHost::Event& event) {
     if (!handled && event.kind == GuiHost::EventKind::Close) scheduler_.request_stop();
 }
 
-void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path) {
+void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path,
+                             const std::function<std::vector<int>()>& snapshot) {
+    bool discard_batch_keys = false;
     for (const auto& event : events) {
+        if (event.type == EV_SYN && event.code == SYN_DROPPED) {
+            desynchronized_devices_.insert(path);
+            continue;
+        }
+        if (desynchronized_devices_.count(path) != 0) {
+            if (event.type != EV_SYN || event.code != SYN_REPORT) continue;
+            try {
+                if (!snapshot) throw RuntimeErrorKeyloom("no key state snapshot available");
+                const auto codes = snapshot();
+                const std::set<int> current(codes.begin(), codes.end());
+                const auto previous = device_raw_down_[path];
+                std::vector<RawEvent> changes;
+                for (int code : previous) {
+                    if (current.count(code) == 0) changes.push_back({EV_KEY, code, 0});
+                }
+                for (int code : current) {
+                    if (previous.count(code) == 0) changes.push_back({EV_KEY, code, 1});
+                }
+                changes.push_back({EV_SYN, SYN_REPORT, 0});
+                desynchronized_devices_.erase(path);
+                process_events(changes, sink, path, snapshot);
+                if (scheduler_.stop_requested()) return;
+                // EVIOCGKEY flushes queued EV_KEY events in the kernel, but
+                // cannot flush events already copied into this read batch.
+                // Those all predate the snapshot and must not be replayed.
+                discard_batch_keys = true;
+            } catch (const std::exception& error) {
+                runtime_error_ = "input resynchronization failed for " + path + ": " + error.what();
+                say(runtime_error_);
+                scheduler_.request_stop();
+                return;
+            }
+            continue;
+        }
+        if (discard_batch_keys && event.type == EV_KEY) continue;
         if (sink != nullptr && !is_consumed_key_event(event.type, event.code)) {
             try {
                 sink->write_event(event.type, event.code, event.value);
@@ -732,6 +798,9 @@ void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sin
             }
         }
         if (event.type != EV_KEY || event.value == 2) continue;
+        if (event.value == 1) device_raw_down_[path].insert(event.code);
+        else if (event.value == 0) device_raw_down_[path].erase(event.code);
+        else continue;
         const auto name = normalize_key_event(event.code);
         if (!name) continue;
         const std::string key = canonical_key(*name);
@@ -740,6 +809,28 @@ void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sin
         }
         physical_key(path, key, event.value == 1);
     }
+}
+
+void Runtime::seed_device_keys(const std::string& path, const std::vector<int>& codes) {
+    for (int code : codes) {
+        device_raw_down_[path].insert(code);
+        const auto name = normalize_key_event(code);
+        if (!name) continue;
+        const std::string key = canonical_key(*name);
+        device_down_[path].insert(key);
+        pressed_keys_.insert(key);
+    }
+}
+
+void Runtime::disconnect_device(const std::string& path) {
+    const auto found = device_down_.find(path);
+    if (found != device_down_.end()) {
+        const std::vector<std::string> released(found->second.begin(), found->second.end());
+        for (const auto& key : released) physical_key(path, key, false);
+        device_down_.erase(path);
+    }
+    device_raw_down_.erase(path);
+    desynchronized_devices_.erase(path);
 }
 
 void Runtime::physical_key(const std::string& path, const std::string& key, bool down) {
@@ -767,8 +858,9 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
             if (!event_binds_key(event, key)) continue;
             if (!hotkey_enabled(event)) continue;
             if (event.edge == "down") {
-                ++active_hotkey_downs_[key];
                 spawn_background(safe_dispatch(event, key, "down"));
+            } else if (event.edge == "up") {
+                active_hotkey_ups_[key].push_back(&event);
             } else if (event.edge == "held") {
                 held_tasks_[{key, event.line}] = spawn_held(event, key);
             }
@@ -796,15 +888,11 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
                 ++it;
             }
         }
-        const auto active_down = active_hotkey_downs_.find(key);
-        if (active_down != active_hotkey_downs_.end()) {
-            --active_down->second;
-            if (active_down->second <= 0) active_hotkey_downs_.erase(active_down);
-            for (const auto& event : script_.events) {
-                if (event.edge == "up" && event_binds_key(event, key)) {
-                    spawn_background(safe_dispatch(event, key, "up"));
-                }
-            }
+        const auto active_up = active_hotkey_ups_.find(key);
+        if (active_up != active_hotkey_ups_.end()) {
+            const auto events = std::move(active_up->second);
+            active_hotkey_ups_.erase(active_up);
+            for (const Node* event : events) spawn_background(safe_dispatch(*event, key, "up"));
         }
     }
 }
@@ -817,7 +905,7 @@ Task Runtime::timer_loop(const Node& event, double interval) {
     }
 }
 
-Task Runtime::held_loop(const Node& event, std::string key, double interval) {
+Task Runtime::held_loop(Node event, std::string key, double interval) {
     if (interval <= 0.0) co_return;
     // Tick on a fixed schedule: time spent inside the handler is part of the
     // interval, so `every 10ms` with a 5ms tap still repeats every 10ms.
@@ -1782,16 +1870,16 @@ void Runtime::free_button(const std::string& owner) {
     const auto held = held_tokens_.find(owner);
     if (held == held_tokens_.end()) return;
     const std::string button = held->second;
-    held_tokens_.erase(held);
 
     const auto reference = button_refs_.find(button);
     const int count = (reference != button_refs_.end() ? reference->second : 1) - 1;
     if (count <= 0) {
-        button_refs_.erase(button);
         backend_->button(button, false);
+        button_refs_.erase(button);
     } else {
         button_refs_[button] = count;
     }
+    held_tokens_.erase(held);
 }
 
 void Runtime::hold_key(const std::string& name) {
@@ -1805,8 +1893,8 @@ void Runtime::free_key(const std::string& name) {
     const int count = (found != key_refs_.end() ? found->second : 0) - 1;
     if (count <= 0) {
         if (found != key_refs_.end()) {
-            key_refs_.erase(found);
             backend_->key(name, false);
+            key_refs_.erase(found);
         }
     } else {
         key_refs_[name] = count;

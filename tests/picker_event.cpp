@@ -8,6 +8,7 @@
 //   picker_event WINDOW_ID button BUTTON X Y
 //   picker_event WINDOW_ID key KEYSYM
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 #include <X11/keysym.h>
 
 #include <cstdio>
@@ -19,7 +20,9 @@ namespace {
 
 void usage() {
     std::fprintf(stderr, "usage: picker_event WINDOW_ID button BUTTON X Y\n"
-                         "       picker_event WINDOW_ID key KEYSYM\n");
+                         "       picker_event WINDOW_ID key KEYSYM\n"
+                         "       picker_event WINDOW_ID pixel X Y\n"
+                         "       picker_event WINDOW_ID close|destroy\n");
 }
 
 }  // namespace
@@ -44,7 +47,14 @@ int main(int argc, char** argv) {
     XEvent event{};
     bool send = false;
     const std::string kind = argv[2];
-    if (kind == "button" && argc == 6) {
+    if (kind == "pixel" && argc == 5) {
+        XImage* image = XGetImage(display, DefaultRootWindow(display), std::atoi(argv[3]), std::atoi(argv[4]), 1, 1, AllPlanes, ZPixmap);
+        if (image != nullptr) {
+            std::printf("%06lx\n", XGetPixel(image, 0, 0) & 0xffffffUL);
+            XDestroyImage(image);
+            send = true;
+        }
+    } else if (kind == "button" && argc == 6) {
         const int x = std::atoi(argv[4]);
         const int y = std::atoi(argv[5]);
         event.xbutton.type = ButtonPress;
@@ -84,6 +94,9 @@ int main(int argc, char** argv) {
         event.xclient.data.l[0] = static_cast<long>(XInternAtom(display, "WM_DELETE_WINDOW", False));
         event.xclient.data.l[1] = CurrentTime;
         XSendEvent(display, window, False, NoEventMask, &event);
+        send = true;
+    } else if (kind == "destroy" && argc == 3) {
+        XDestroyWindow(display, window);
         send = true;
     } else {
         usage();

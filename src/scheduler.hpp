@@ -5,10 +5,12 @@
 #include <cstdint>
 #include <deque>
 #include <exception>
+#include <functional>
 #include <map>
 #include <queue>
 #include <set>
 #include <vector>
+#include <sys/epoll.h>
 
 #include "errors.hpp"
 
@@ -23,6 +25,7 @@ struct Task {
     struct promise_type {
         Scheduler* scheduler = nullptr;
         bool cancelled = false;
+        bool started = false;
         std::exception_ptr error;
         std::coroutine_handle<> continuation{};
         /// Coroutine this one is currently `co_await`ing, and the coroutine
@@ -74,15 +77,26 @@ class Scheduler {
 public:
     using handle_type = Task::handle_type;
 
-    Scheduler();
+    using WaitFunction = std::function<int(int, epoll_event*, int, int)>;
+    explicit Scheduler(WaitFunction wait = {});
     ~Scheduler();
     Scheduler(const Scheduler&) = delete;
     Scheduler& operator=(const Scheduler&) = delete;
 
     static Scheduler& current();
 
+    /// Tasks spawned by a running root depend on that root during shutdown.
+    /// Dependencies constrain forced destruction, not ordinary task completion;
+    /// detached tasks must own resources they use beyond their caller's lifetime.
     void spawn(Task task);
     void run();
+    /// Run currently ready tasks without waiting for timers or descriptors.
+    void run_ready();
+    /// Declare that dependent must be destroyed before prerequisite at shutdown.
+    /// Both must be live spawned tasks; cycles are rejected.
+    void add_shutdown_dependency(handle_type dependent, handle_type prerequisite);
+    /// Destroy dependents before prerequisites; unrelated tasks use reverse spawn order.
+    void shutdown();
 
     bool stop_requested() const { return stop_; }
     void request_stop();
@@ -99,8 +113,8 @@ public:
     void forget_task(handle_type handle);
 
     void suspend_until(handle_type handle, double seconds);
-    void suspend_on_fd(handle_type handle, int fd);
-    void release_fd(int fd);
+    int suspend_on_fd(handle_type handle, int fd);
+    void release_fd(int fd, handle_type owner);
     void wait_for_stop(handle_type handle);
     void wait_for_drain(handle_type handle);
     void check_cancelled(handle_type handle);
@@ -109,6 +123,8 @@ public:
 private:
     void pump();
     void resume(handle_type handle);
+    void remove_waits(handle_type handle);
+    void remove_dependencies(handle_type handle);
 
     struct Timer {
         double deadline = 0.0;
@@ -125,13 +141,19 @@ private:
     std::deque<handle_type> ready_;
     std::priority_queue<Timer, std::vector<Timer>, TimerLater> timers_;
     std::uint64_t timer_sequence_ = 0;
+    // A timer belongs to one particular suspension, not merely a frame address.
+    std::map<handle_type, std::uint64_t, HandleLess> timer_waits_;
     std::map<int, handle_type> fd_waiters_;
     std::set<handle_type, HandleLess> live_;
+    std::vector<handle_type> live_order_;
+    std::map<handle_type, std::set<handle_type, HandleLess>, HandleLess> shutdown_dependencies_;
     std::set<handle_type, HandleLess> known_;
+    handle_type active_root_{};
     std::vector<handle_type> stop_waiters_;
     std::vector<handle_type> drain_waiters_;
     int epoll_fd_ = -1;
     bool stop_ = false;
+    WaitFunction wait_;
 };
 
 /// Suspend a task for a wall-clock duration.
@@ -155,16 +177,15 @@ struct ReadableAwaiter {
     Scheduler* scheduler;
     int fd;
     Task::handle_type handle{};
+    int registration_error = 0;
 
     bool await_ready() const noexcept { return false; }
-    void await_suspend(Task::handle_type suspended) noexcept {
+    bool await_suspend(Task::handle_type suspended) noexcept {
         handle = suspended;
-        scheduler->suspend_on_fd(suspended, fd);
+        registration_error = scheduler->suspend_on_fd(suspended, fd);
+        return registration_error == 0;
     }
-    void await_resume() {
-        scheduler->release_fd(fd);
-        scheduler->check_cancelled(handle);
-    }
+    void await_resume();
 };
 
 inline ReadableAwaiter readable(int fd) { return ReadableAwaiter{&Scheduler::current(), fd}; }
@@ -200,5 +221,16 @@ struct DrainAwaiter {
 };
 
 inline DrainAwaiter drain() { return DrainAwaiter{&Scheduler::current()}; }
+
+/// Drain used by cleanup: cancellation may wake it early, so report whether the
+/// drain actually completed instead of throwing and abandoning cleanup.
+struct CleanupDrainAwaiter {
+    Scheduler* scheduler;
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(Task::handle_type suspended) noexcept { scheduler->wait_for_drain(suspended); }
+    bool await_resume() const { return scheduler->live_count() <= 1; }
+};
+
+inline CleanupDrainAwaiter cleanup_drain() { return CleanupDrainAwaiter{&Scheduler::current()}; }
 
 }  // namespace keyloom

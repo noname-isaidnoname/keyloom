@@ -172,13 +172,15 @@ void YdotoolBackend::type_text(const std::string& text) {
 void YdotoolBackend::scroll(int x, int y) { pointer().scroll(x, y); }
 
 void YdotoolBackend::close() {
-    for (const auto& name : down_buttons_) {
+    const auto buttons = down_buttons_;
+    const auto keys = down_keys_;
+    for (const auto& name : buttons) {
         try {
             button(name, false);
         } catch (const std::exception&) {
         }
     }
-    for (const auto& name : down_keys_) {
+    for (const auto& name : keys) {
         try {
             key(name, false);
         } catch (const std::exception&) {
@@ -227,7 +229,9 @@ UInputBackend::UInputBackend(int width, int height, bool keyboard)
                                              std::vector<int>{REL_X, REL_Y, REL_WHEEL, REL_HWHEEL}, axes);
 }
 
-UInputBackend::~UInputBackend() { close(); }
+UInputBackend::~UInputBackend() {
+    try { close(); } catch (...) {}
+}
 
 void UInputBackend::warp(int x, int y) {
     const int clamped_x = std::max(0, std::min(width_ - 1, x));
@@ -337,13 +341,15 @@ void UInputBackend::scroll(int x, int y) {
 
 void UInputBackend::close() {
     if (!device_) return;
-    for (const auto& name : down_buttons_) {
+    const auto buttons = down_buttons_;
+    const auto keys = down_keys_;
+    for (const auto& name : buttons) {
         try {
             button(name, false);
         } catch (const std::exception&) {
         }
     }
-    for (const auto& name : down_keys_) {
+    for (const auto& name : keys) {
         try {
             key(name, false);
         } catch (const std::exception&) {
@@ -351,8 +357,8 @@ void UInputBackend::close() {
     }
     down_buttons_.clear();
     down_keys_.clear();
-    device_->close();
-    device_.reset();
+    auto device = std::move(device_);
+    device->close();
 }
 
 PassthroughDevice::PassthroughDevice(const DeviceCapabilities& capabilities, VirtualInputFactory factory)
@@ -364,17 +370,21 @@ PassthroughDevice::~PassthroughDevice() { close(); }
 
 void PassthroughDevice::write_event(int type, int code, int value) {
     if (!device_) return;
-    if (type == EV_KEY) {
-        if (value == 1) {
-            down_keys_.push_back(code);
-        } else if (value == 0) {
-            down_keys_.erase(std::remove(down_keys_.begin(), down_keys_.end(), code), down_keys_.end());
-        }
+    if (type == EV_KEY && value == 1) {
+        // A failed write can have partially reached the device. Conservatively
+        // keep the key tracked until a release report is flushed successfully.
+        down_keys_.insert(code);
+        pending_releases_.erase(code);
     }
     device_->write(type, code, value);
+    if (type == EV_KEY && value == 0) pending_releases_.insert(code);
     // A SYN report ends the frame; flushing there keeps event framing identical
     // while still collapsing one report into one write().
-    if (type == EV_SYN) device_->flush();
+    if (type == EV_SYN) {
+        device_->flush();
+        for (int released : pending_releases_) down_keys_.erase(released);
+        pending_releases_.clear();
+    }
 }
 
 void PassthroughDevice::close() {
@@ -386,6 +396,7 @@ void PassthroughDevice::close() {
         }
     }
     down_keys_.clear();
+    pending_releases_.clear();
     try {
         device_->write(EV_SYN, SYN_REPORT, 0);
         device_->flush();

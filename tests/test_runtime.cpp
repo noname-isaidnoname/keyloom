@@ -1,18 +1,23 @@
 #include "harness.hpp"
 
 #include <algorithm>
+#include <csignal>
+#include <cstdlib>
+#include <fcntl.h>
 #include <fstream>
 #include <linux/input.h>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 #include "backends.hpp"
 #include "keys.hpp"
 #include "parser.hpp"
 #include "runtime.hpp"
 #include "scheduler.hpp"
+#include "unique_fd.hpp"
 
 using namespace keyloom;
 
@@ -47,6 +52,66 @@ struct RecordingBackend : OutputBackend {
     void close() override { log.push_back("close"); }
     const char* name() const override { return "RecordingBackend"; }
 };
+
+struct FailFirstReleaseBackend : RecordingBackend {
+    bool fail_key = true;
+    bool fail_button = true;
+    void key(const std::string& name, bool down) override {
+        if (!down && fail_key) {
+            fail_key = false;
+            throw BackendError("key release failed");
+        }
+        RecordingBackend::key(name, down);
+    }
+    void button(const std::string& name, bool down) override {
+        if (!down && fail_button) {
+            fail_button = false;
+            throw BackendError("button release failed");
+        }
+        RecordingBackend::button(name, down);
+    }
+};
+
+struct CaptureOnDestroyBackend : RecordingBackend {
+    explicit CaptureOnDestroyBackend(std::vector<std::string>& output) : output_(output) {}
+    ~CaptureOnDestroyBackend() override { output_ = log; }
+    std::vector<std::string>& output_;
+};
+
+struct ThrowCloseBackend : RecordingBackend {
+    int closes = 0;
+    void close() override {
+        ++closes;
+        throw BackendError("injected close failure");
+    }
+};
+
+struct ObserveCloseBackend : RecordingBackend {
+    explicit ObserveCloseBackend(bool& dependency_done) : dependency_done_(dependency_done) {}
+    bool closed_after_dependency = false;
+    void close() override {
+        closed_after_dependency = dependency_done_;
+        RecordingBackend::close();
+    }
+    bool& dependency_done_;
+};
+
+Task slow_cleanup_dependency(bool& finished) {
+    co_await sleep_for(0.08);
+    finished = true;
+}
+
+Task stop_then_cancel_runtime(Runtime& runtime, Task::handle_type root) {
+    co_await sleep_for(0.01);
+    runtime.scheduler().request_stop();
+    co_await sleep_for(0.01);
+    runtime.scheduler().cancel(root);
+}
+
+Task stop_runtime_soon(Runtime& runtime) {
+    co_await sleep_for(0.01);
+    runtime.scheduler().request_stop();
+}
 
 struct TimedBackend : OutputBackend {
     std::vector<double> downs;
@@ -90,6 +155,28 @@ struct ForwardingInput : VirtualInput {
     void close() override { target->close(); }
 };
 
+struct FailingInput : VirtualInput {
+    RecordedInput& recorder;
+    bool fail_release = false;
+    bool fail_flush = false;
+    explicit FailingInput(RecordedInput& target) : recorder(target) {}
+    void write(int type, int code, int value) override {
+        if (fail_release && type == EV_KEY && value == 0) {
+            fail_release = false;
+            throw BackendError("injected release failure");
+        }
+        recorder.write(type, code, value);
+    }
+    void flush() override {
+        if (fail_flush) {
+            fail_flush = false;
+            throw BackendError("injected flush failure");
+        }
+        recorder.flush();
+    }
+    void close() override { recorder.close(); }
+};
+
 Value eval_expression(const std::string& expression) {
     Script script = parse("loom \"expr\" { when app starts { set result = " + expression + " } }");
     Runtime runtime(script, Runtime::Options{});
@@ -103,6 +190,11 @@ Task drive_held_loop(Runtime& runtime, const Node& event) {
     runtime.pressed_keys().insert("X");
     runtime.scheduler().spawn(runtime.held_loop(event, "X", 0.01));
     co_await sleep_for(0.075);
+    runtime.pressed_keys().erase("X");
+}
+
+Task release_test_key(Runtime& runtime) {
+    co_await sleep_for(0.04);
     runtime.pressed_keys().erase("X");
 }
 
@@ -387,6 +479,142 @@ loom "toggle-binding" {
     CHECK_EQ(raw->log, std::vector<std::string>({"type F8", "type F8"}));
 }
 
+TEST_CASE(gui_initialization_failure_cleans_backend_and_preserves_primary_error) {
+    const char* display = std::getenv("DISPLAY");
+    const bool had_display = display != nullptr;
+    const std::string original = had_display ? display : "";
+    ::setenv("DISPLAY", "invalid-keyloom-display", 1);
+    Runtime runtime(parse(R"LOOM(
+loom "startup-failure" {
+    gui "panel" { label "hello" }
+    when app starts { log "ready" }
+}
+)LOOM"));
+    auto backend = std::make_unique<ThrowCloseBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.scheduler().spawn(runtime.run());
+    runtime.scheduler().run();
+    if (had_display) ::setenv("DISPLAY", original.c_str(), 1);
+    else ::unsetenv("DISPLAY");
+
+    CHECK_EQ(raw->closes, 1);
+    CHECK_TRUE(runtime.failure() != nullptr);
+    std::string message;
+    try {
+        std::rethrow_exception(runtime.failure());
+    } catch (const std::exception& error) {
+        message = error.what();
+    }
+    CHECK_TRUE(message.find("needs an X11 display") != std::string::npos);
+}
+
+TEST_CASE(cancellation_during_cleanup_still_drains_before_closing_backend) {
+    Runtime runtime(parse("loom \"cleanup-cancel\" { when app starts { log \"ready\" } }"));
+    bool dependency_done = false;
+    auto backend = std::make_unique<ObserveCloseBackend>(dependency_done);
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    Task root = runtime.run();
+    runtime.scheduler().spawn(root);
+    runtime.scheduler().spawn(slow_cleanup_dependency(dependency_done));
+    runtime.scheduler().spawn(stop_then_cancel_runtime(runtime, root.handle));
+    runtime.scheduler().run();
+    CHECK_TRUE(dependency_done);
+    CHECK_TRUE(raw->closed_after_dependency);
+    CHECK_TRUE(runtime.failure() == nullptr);
+    CHECK_EQ(runtime.scheduler().live_count(), static_cast<size_t>(0));
+}
+
+TEST_CASE(backend_close_failure_is_reported_after_shutdown) {
+    Runtime runtime(parse("loom \"close-failure\" { when app starts { log \"ready\" } }"));
+    auto backend = std::make_unique<ThrowCloseBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.scheduler().spawn(runtime.run());
+    runtime.scheduler().spawn(stop_runtime_soon(runtime));
+    runtime.scheduler().run();
+    CHECK_EQ(raw->closes, 1);
+    CHECK_TRUE(runtime.failure() != nullptr);
+    CHECK_THROWS(std::rethrow_exception(runtime.failure()), BackendError);
+    CHECK_EQ(runtime.scheduler().live_count(), static_cast<size_t>(0));
+}
+
+TEST_CASE(runtime_destruction_during_startup_restores_signal_mask) {
+    sigset_t before{};
+    CHECK_EQ(::sigprocmask(SIG_SETMASK, nullptr, &before), 0);
+    {
+        Runtime::Options options;
+        options.dry_run = true;
+        Runtime runtime(parse("loom \"startup\" { when app starts { wait 60s } }"), options);
+        runtime.scheduler().spawn(runtime.run());
+        runtime.scheduler().run_ready();
+        sigset_t during{};
+        CHECK_EQ(::sigprocmask(SIG_SETMASK, nullptr, &during), 0);
+        CHECK_EQ(::sigismember(&during, SIGINT), 1);
+        CHECK_EQ(::sigismember(&during, SIGTERM), 1);
+        CHECK_TRUE(runtime.scheduler().live_count() > 0);
+    }
+    sigset_t after{};
+    CHECK_EQ(::sigprocmask(SIG_SETMASK, nullptr, &after), 0);
+    CHECK_EQ(::sigismember(&after, SIGINT), ::sigismember(&before, SIGINT));
+    CHECK_EQ(::sigismember(&after, SIGTERM), ::sigismember(&before, SIGTERM));
+}
+
+TEST_CASE(deferred_event_owns_its_event_snapshot) {
+    Script script = parse("loom \"event-owner\" { when app starts { key A press } }");
+    Runtime runtime(script);
+    auto backend = std::make_unique<RecordingBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    Task event = runtime.run_event(script.events.at(0));
+    script.events.at(0).body.clear();
+    runtime.scheduler().spawn(event);
+    runtime.scheduler().run();
+    CHECK_EQ(raw->log, std::vector<std::string>({"key A down"}));
+}
+
+TEST_CASE(deferred_held_loop_owns_its_event_snapshot) {
+    Script script = parse("loom \"held-owner\" { when key X stays held every 10ms { key A tap for 1ms } }");
+    Runtime runtime(script);
+    auto backend = std::make_unique<RecordingBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    Task held = runtime.held_loop(script.events.at(0), "X", 0.01);
+    script.events.at(0).body.clear();
+    runtime.pressed_keys().insert("X");
+    runtime.scheduler().spawn(held);
+    runtime.scheduler().spawn(release_test_key(runtime));
+    runtime.scheduler().run();
+    CHECK_TRUE(std::count(raw->log.begin(), raw->log.end(), "key A down") > 0);
+}
+
+TEST_CASE(runtime_destruction_releases_remaining_output_holds) {
+    std::vector<std::string> log;
+    {
+        Runtime runtime(parse("loom \"cleanup\" { when app starts { log \"ready\" } }"));
+        runtime.set_backend(std::make_unique<CaptureOnDestroyBackend>(log));
+        runtime.hold_key("A");
+        runtime.hold_button("owner", "left");
+    }
+    CHECK_EQ(log, std::vector<std::string>({"key A down", "button left down", "button left up", "key A up", "close"}));
+}
+
+TEST_CASE(failed_output_releases_remain_tracked_for_retry) {
+    Script script = parse("loom \"retry\" { when app starts { log \"ready\" } }");
+    Runtime runtime(script);
+    auto backend = std::make_unique<FailFirstReleaseBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.hold_key("A");
+    runtime.hold_button("owner", "left");
+    CHECK_THROWS(runtime.free_key("A"), BackendError);
+    CHECK_THROWS(runtime.free_button("owner"), BackendError);
+    runtime.free_key("A");
+    runtime.free_button("owner");
+    CHECK_EQ(raw->log, std::vector<std::string>({"key A down", "button left down", "key A up", "button left up"}));
+}
+
 TEST_CASE(remap_key_holds_and_releases_target) {
     const Script script = parse(R"LOOM(
 loom "remap" {
@@ -408,6 +636,117 @@ loom "remap" {
     runtime.physical_key("fake-keyboard", "Q", false);
 
     CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down", "key SPACE up"}));
+}
+
+TEST_CASE(disconnect_releases_remap_after_last_device) {
+    const Script script = parse(R"LOOM(
+loom "disconnect" {
+    remap key Q to CTRL+SPACE
+    when app starts { log "ready" }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.physical_key("one", "Q", true);
+    runtime.physical_key("two", "Q", true);
+    runtime.disconnect_device("one");
+    CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key SPACE down"}));
+    runtime.disconnect_device("two");
+    runtime.disconnect_device("two");
+    CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key SPACE down", "key SPACE up", "key LEFTCTRL up"}));
+    CHECK_TRUE(runtime.pressed_keys().empty());
+}
+
+TEST_CASE(evdev_overflow_resynchronizes_remaps_and_passthrough) {
+    const Script script = parse(R"LOOM(
+loom "overflow" {
+    remap key Q to SPACE
+    when key B goes down { key C press }
+}
+)LOOM");
+    Runtime runtime(script);
+    auto backend = std::make_unique<RecordingBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.set_consumed_keys(runtime.collect_consumed_keys());
+    FakeSink sink;
+    const std::string path = "keyboard";
+    runtime.process_events({{EV_KEY, KEY_Q, 1}, {EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}}, &sink, path);
+    runtime.process_events({{EV_SYN, SYN_DROPPED, 0}, {EV_KEY, KEY_B, 0}}, &sink, path);
+    CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down"}));
+    int snapshots = 0;
+    runtime.process_events({{EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}}, &sink, path, [&] {
+        ++snapshots;
+        return std::vector<int>{KEY_B};
+    });
+    runtime.scheduler().run();
+    CHECK_EQ(snapshots, 1);
+    CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down", "key SPACE up", "key C down"}));
+    CHECK_TRUE(runtime.pressed_keys().count("Q") == 0);
+    CHECK_TRUE(runtime.pressed_keys().count("A") == 0);
+    CHECK_TRUE(runtime.pressed_keys().count("B") == 1);
+    CHECK_EQ(sink.writes, std::vector<std::string>({"1:30:1", "0:0:0", "1:30:0", "1:48:1", "0:0:0"}));
+}
+
+TEST_CASE(evdev_overflow_snapshot_failure_stops_runtime) {
+    Runtime runtime(parse("loom \"overflow\" { when app starts { log \"ready\" } }"));
+    runtime.process_events({{EV_SYN, SYN_DROPPED, 0}, {EV_SYN, SYN_REPORT, 0}}, nullptr, "keyboard");
+    CHECK_TRUE(runtime.scheduler().stop_requested());
+    CHECK_TRUE(runtime.runtime_error().find("resynchronization failed") != std::string::npos);
+}
+
+TEST_CASE(evdev_overflow_ignores_stale_keys_already_in_read_batch) {
+    const Script script = parse(R"LOOM(
+loom "overflow-tail" {
+    remap key Q to SPACE
+    when app starts { log "ready" }
+}
+)LOOM");
+    Runtime runtime(script);
+    auto backend = std::make_unique<RecordingBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.set_consumed_keys(runtime.collect_consumed_keys());
+    FakeSink sink;
+    runtime.process_events({{EV_SYN, SYN_DROPPED, 0}, {EV_SYN, SYN_REPORT, 0},
+                            {EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}},
+                           &sink, "keyboard", [] { return std::vector<int>{KEY_Q}; });
+    CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down"}));
+    CHECK_TRUE(runtime.pressed_keys().count("Q") == 1);
+    CHECK_TRUE(runtime.pressed_keys().count("A") == 0);
+    CHECK_EQ(sink.writes, std::vector<std::string>({"0:0:0", "0:0:0"}));
+
+    // A subsequent read contains events queued after the snapshot, not its stale tail.
+    runtime.process_events({{EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}},
+                           &sink, "keyboard");
+    CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down", "key SPACE up"}));
+    CHECK_TRUE(runtime.pressed_keys().count("Q") == 0);
+    CHECK_TRUE(runtime.pressed_keys().count("A") == 1);
+}
+
+TEST_CASE(remap_only_script_requires_an_accessible_keyboard) {
+    Script script = parse(R"LOOM(
+loom "remap-only" {
+    remap key Q to SPACE
+    when timer every 1s { log "tick" }
+}
+)LOOM");
+    Runtime::Options options;
+    options.dry_run = true;
+    options.input_device = "/nonexistent-keyloom-input-device";
+    Runtime runtime(script, options);
+    runtime.scheduler().spawn(runtime.run());
+    runtime.scheduler().run();
+    CHECK_TRUE(runtime.failure() != nullptr);
+    std::string message;
+    try { std::rethrow_exception(runtime.failure()); }
+    catch (const std::exception& error) { message = error.what(); }
+    CHECK_TRUE(message.find("No accessible keyboard devices") != std::string::npos);
 }
 
 TEST_CASE(remap_source_is_script_wide_consumed) {
@@ -478,6 +817,204 @@ TEST_CASE(passthrough_releases_held_keys_on_close) {
     CHECK_EQ(recorder.closes, 1);
 }
 
+TEST_CASE(passthrough_retries_unconfirmed_release_on_disconnect) {
+    RecordedInput recorder;
+    FailingInput* input = nullptr;
+    PassthroughDevice device({}, [&](const std::string&, const std::string&, const DeviceCapabilities&) {
+        auto result = std::make_unique<FailingInput>(recorder);
+        input = result.get();
+        return result;
+    });
+    device.write_event(EV_KEY, KEY_A, 1);
+    device.write_event(EV_SYN, SYN_REPORT, 0);
+    input->fail_release = true;
+    CHECK_THROWS(device.write_event(EV_KEY, KEY_A, 0), BackendError);
+    device.close();
+    CHECK_EQ(recorder.writes, std::vector<std::string>({"1:30:1", "0:0:0", "flush", "1:30:0", "0:0:0", "flush"}));
+    CHECK_EQ(recorder.closes, 1);
+}
+
+TEST_CASE(passthrough_retries_release_after_failed_report_flush) {
+    RecordedInput recorder;
+    FailingInput* input = nullptr;
+    PassthroughDevice device({}, [&](const std::string&, const std::string&, const DeviceCapabilities&) {
+        auto result = std::make_unique<FailingInput>(recorder);
+        input = result.get();
+        return result;
+    });
+    device.write_event(EV_KEY, KEY_A, 1);
+    device.write_event(EV_SYN, SYN_REPORT, 0);
+    device.write_event(EV_KEY, KEY_A, 0);
+    input->fail_flush = true;
+    CHECK_THROWS(device.write_event(EV_SYN, SYN_REPORT, 0), BackendError);
+    device.close();
+    CHECK_EQ(std::count(recorder.writes.begin(), recorder.writes.end(), "1:30:0"), 2);
+    CHECK_EQ(recorder.closes, 1);
+}
+
+TEST_CASE(passthrough_forgets_only_successfully_flushed_releases) {
+    RecordedInput recorder;
+    PassthroughDevice device({}, [&recorder](const std::string&, const std::string&, const DeviceCapabilities&) {
+        return std::make_unique<ForwardingInput>(&recorder);
+    });
+    device.write_event(EV_KEY, KEY_A, 1);
+    device.write_event(EV_KEY, KEY_A, 1);
+    device.write_event(EV_SYN, SYN_REPORT, 0);
+    device.write_event(EV_KEY, KEY_A, 0);
+    device.write_event(EV_SYN, SYN_REPORT, 0);
+    device.close();
+    CHECK_EQ(std::count(recorder.writes.begin(), recorder.writes.end(), "1:30:0"), 1);
+}
+
+TEST_CASE(observed_device_startup_seeds_key_state_without_firing_bindings) {
+    Script script = parse(R"LOOM(
+loom "already-held" {
+    when key A goes down { key B press }
+    when key A goes up { key C press }
+}
+)LOOM");
+    Runtime runtime(script);
+    auto backend = std::make_unique<RecordingBackend>();
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.seed_device_keys("one", {KEY_A});
+    runtime.seed_device_keys("two", {KEY_A});
+    CHECK_TRUE(runtime.pressed_keys().count("A") == 1);
+    runtime.process_events({{EV_KEY, KEY_A, 0}}, nullptr, "one");
+    CHECK_TRUE(runtime.pressed_keys().count("A") == 1);
+    runtime.process_events({{EV_KEY, KEY_A, 0}}, nullptr, "two");
+    runtime.scheduler().run();
+    CHECK_TRUE(runtime.pressed_keys().empty());
+    CHECK_TRUE(raw->log.empty());
+    runtime.process_events({{EV_KEY, KEY_A, 1}, {EV_KEY, KEY_A, 0}}, nullptr, "one");
+    runtime.scheduler().run();
+    CHECK_EQ(raw->log, std::vector<std::string>({"key B down", "key C down"}));
+}
+
+TEST_CASE(idle_grab_rejects_held_keys_and_rolls_back_races) {
+    int snapshots = 0;
+    int grabs = 0;
+    int ungrabs = 0;
+    CHECK_THROWS(grab_idle_input([&] { ++snapshots; return std::vector<int>{KEY_A}; },
+                                 [] { return PendingInput{}; },
+                                 [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+    CHECK_EQ(snapshots, 1);
+    CHECK_EQ(grabs, 0);
+    CHECK_EQ(ungrabs, 0);
+    snapshots = 0;
+    std::vector<RawEvent> queue;
+    int drains = 0;
+    CHECK_THROWS(grab_idle_input([&] {
+        ++snapshots;
+        // EVIOCGKEY would flush queued EV_KEY events while reporting no key held.
+        queue.clear();
+        return std::vector<int>{};
+    }, [&] {
+        ++drains;
+        PendingInput pending;
+        pending.any = !queue.empty();
+        for (const auto& event : queue) {
+            if (event.type == EV_KEY && event.value == 0) pending.released_codes.insert(event.code);
+        }
+        queue.clear();
+        return pending;
+    }, [&] {
+        ++grabs;
+        // A complete transition is invisible to a held-key snapshot.
+        queue = {{EV_KEY, KEY_A, 1}, {EV_KEY, KEY_A, 0}};
+    }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+    CHECK_EQ(snapshots, 2);
+    CHECK_EQ(drains, 2);
+    CHECK_EQ(grabs, 1);
+    CHECK_EQ(ungrabs, 1);
+    drains = 0;
+    CHECK_THROWS(grab_idle_input([] { return std::vector<int>{}; }, [&] {
+        if (++drains == 2) throw RuntimeErrorKeyloom("queue read failed");
+        return PendingInput{};
+    }, [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+    CHECK_EQ(grabs, 2);
+    CHECK_EQ(ungrabs, 2);
+}
+
+TEST_CASE(split_grab_handoff_aborts_and_identifies_the_possible_stuck_key) {
+    bool desktop_thinks_down = false;
+    bool grabbed = false;
+    int snapshots = 0;
+    int drains = 0;
+    std::string error_message;
+    try {
+        grab_idle_input([&] {
+            ++snapshots;
+            return std::vector<int>{};
+        }, [&] {
+            ++drains;
+            if (drains == 1) return PendingInput{};
+            // The desktop saw the physical down before the grab. The physical
+            // up arrived while grabbed and cannot safely be replayed elsewhere.
+            return PendingInput{true, false, {KEY_A}};
+        }, [&] {
+            desktop_thinks_down = true;
+            grabbed = true;
+        }, [&] { grabbed = false; });
+    } catch (const RuntimeErrorKeyloom& error) {
+        error_message = error.what();
+    }
+    CHECK_EQ(snapshots, 2);
+    CHECK_EQ(drains, 2);
+    CHECK_TRUE(!grabbed);
+    CHECK_TRUE(desktop_thinks_down);
+    CHECK_TRUE(error_message.find("release of A") != std::string::npos);
+    CHECK_TRUE(error_message.find("physically tap and release") != std::string::npos);
+}
+
+TEST_CASE(handoff_queue_drain_preserves_releases_and_overflow) {
+    int fds[2];
+    CHECK_EQ(::pipe2(fds, O_NONBLOCK | O_CLOEXEC), 0);
+    UniqueFd reader(fds[0]);
+    UniqueFd writer(fds[1]);
+    input_event events[3]{};
+    events[0].type = EV_KEY;
+    events[0].code = KEY_A;
+    events[0].value = 1;
+    events[1].type = EV_KEY;
+    events[1].code = KEY_A;
+    events[1].value = 0;
+    events[2].type = EV_SYN;
+    events[2].code = SYN_DROPPED;
+    CHECK_EQ(::write(writer.get(), events, sizeof(events)), static_cast<ssize_t>(sizeof(events)));
+    const PendingInput pending = drain_input_events(reader.get());
+    CHECK_TRUE(pending.any);
+    CHECK_TRUE(pending.synchronization_lost);
+    CHECK_TRUE(pending.released_codes.count(KEY_A) == 1);
+    CHECK_TRUE(!drain_input_events(reader.get()).any);
+}
+
+TEST_CASE(disconnect_releases_passthrough_before_ungrabbing) {
+    RecordedInput recorder;
+    PassthroughDevice device({}, [&recorder](const std::string&, const std::string&, const DeviceCapabilities&) {
+        return std::make_unique<ForwardingInput>(&recorder);
+    });
+    device.write_event(EV_KEY, KEY_A, 1);
+    device.write_event(EV_SYN, SYN_REPORT, 0);
+    release_input_capture(&device, [&] { recorder.writes.push_back("ungrab"); },
+                          [&] { recorder.writes.push_back("close physical"); });
+    CHECK_EQ(recorder.writes, std::vector<std::string>({"1:30:1", "0:0:0", "flush", "1:30:0",
+                                                        "0:0:0", "flush", "ungrab", "close physical"}));
+    CHECK_EQ(recorder.closes, 1);
+}
+
+TEST_CASE(disconnect_attempts_all_steps_after_passthrough_close_failure) {
+    struct BrokenSink : EventSink {
+        void write_event(int, int, int) override {}
+        void close() override { throw BackendError("close failed"); }
+    } sink;
+    std::vector<std::string> actions;
+    CHECK_THROWS(release_input_capture(&sink, [&] { actions.push_back("ungrab"); },
+                                       [&] { actions.push_back("close physical"); }), BackendError);
+    CHECK_EQ(actions, std::vector<std::string>({"ungrab", "close physical"}));
+}
+
 TEST_CASE(ydotool_pointer_motion_uses_a_real_absolute_backend) {
     std::vector<std::string> pointer_log;
     std::vector<std::string> calls;
@@ -539,6 +1076,33 @@ TEST_CASE(ydotool_buttons_and_keys_use_encoded_values) {
                                               "/usr/bin/ydotool type -e 0 -- a\\nb"}));
 }
 
+TEST_CASE(ydotool_close_releases_every_held_input_once) {
+    std::vector<std::string> calls;
+    YdotoolBackend::Runner runner = [&calls](const std::vector<std::string>& argv, bool) {
+        std::string joined;
+        for (const auto& argument : argv) {
+            if (!joined.empty()) joined += " ";
+            joined += argument;
+        }
+        calls.push_back(joined);
+        CommandResult result;
+        result.returncode = 0;
+        return result;
+    };
+    YdotoolBackend backend(1920, 1080, {}, runner, "/usr/bin/ydotool");
+    backend.key("A", true);
+    backend.key("B", true);
+    backend.key("C", true);
+    backend.button("left", true);
+    backend.button("right", true);
+    backend.close();
+    backend.close();
+    CHECK_EQ(calls, std::vector<std::string>({"/usr/bin/ydotool --help", "/usr/bin/ydotool key 30:1",
+        "/usr/bin/ydotool key 48:1", "/usr/bin/ydotool key 46:1", "/usr/bin/ydotool click 0x40",
+        "/usr/bin/ydotool click 0x41", "/usr/bin/ydotool click 0x80", "/usr/bin/ydotool click 0x81",
+        "/usr/bin/ydotool key 30:0", "/usr/bin/ydotool key 48:0", "/usr/bin/ydotool key 46:0"}));
+}
+
 TEST_CASE(mouse_buttons_map_to_distinct_runtime_names) {
     const std::string left = normalize_key_event(BTN_LEFT).value();
     const std::string right = normalize_key_event(BTN_RIGHT).value();
@@ -560,6 +1124,7 @@ loom "ctrl-click" {
     when mouse left goes down { key CTRL press }
     when mouse left goes up { key CTRL free }
 }
+
 )LOOM");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
@@ -573,6 +1138,27 @@ loom "ctrl-click" {
     runtime.scheduler().run();
 
     CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key LEFTCTRL up"}));
+}
+
+TEST_CASE(release_only_binding_runs_once_per_physical_press) {
+    const Script script = parse(R"LOOM(
+loom "release" {
+    when key A goes up { key B press }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+    runtime.physical_key("one", "A", true);
+    runtime.physical_key("two", "A", true);
+    runtime.physical_key("one", "A", false);
+    runtime.scheduler().run();
+    CHECK_TRUE(raw->log.empty());
+    runtime.physical_key("two", "A", false);
+    runtime.scheduler().run();
+    CHECK_EQ(raw->log, std::vector<std::string>({"key B down"}));
 }
 
 TEST_CASE(mouse_held_repeats_until_the_button_is_released) {

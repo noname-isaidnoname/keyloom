@@ -3,12 +3,17 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <exception>
 #include <dirent.h>
 #include <fcntl.h>
 #include <linux/input.h>
 #include <sys/ioctl.h>
 #include <system_error>
 #include <unistd.h>
+
+#include "backends.hpp"
+#include "errors.hpp"
+#include "keys.hpp"
 
 namespace keyloom {
 namespace {
@@ -65,6 +70,60 @@ DeviceCapabilities read_capabilities(int fd) {
 
 }  // namespace
 
+void release_input_capture(EventSink* sink, const std::function<void()>& ungrab,
+                           const std::function<void()>& close_device) {
+    std::exception_ptr failure;
+    const auto attempt = [&failure](const auto& operation) {
+        try { operation(); } catch (...) { if (!failure) failure = std::current_exception(); }
+    };
+    if (sink != nullptr) attempt([sink] { sink->close(); });
+    attempt(ungrab);
+    attempt(close_device);
+    if (failure) std::rethrow_exception(failure);
+}
+
+void grab_idle_input(const std::function<std::vector<int>()>& snapshot,
+                     const std::function<PendingInput()>& discard_pending,
+                     const std::function<void()>& grab, const std::function<void()>& ungrab) {
+    if (!snapshot().empty())
+        throw RuntimeErrorKeyloom("release all held keys and buttons before starting key consumption");
+    // Drain non-key events left behind by EVIOCGKEY, then take the last key
+    // snapshot before the grab. Never call EVIOCGKEY after grabbing: it would
+    // flush a transient press/release before we could notice it.
+    discard_pending();
+    if (!snapshot().empty())
+        throw RuntimeErrorKeyloom("release all held keys and buttons before starting key consumption");
+    grab();
+    try {
+        PendingInput pending;
+        try {
+            pending = discard_pending();
+        } catch (const std::exception& error) {
+            throw RuntimeErrorKeyloom(std::string("could not inspect input after grabbing: ") + error.what() +
+                ". A key release may have been intercepted; if a key appears stuck, physically tap and release it");
+        }
+        if (pending.any) {
+            std::string released;
+            for (int code : pending.released_codes) {
+                const auto name = normalize_key_event(code);
+                if (!released.empty()) released += ", ";
+                released += name ? *name : "code " + std::to_string(code);
+            }
+            std::string message = "input changed during the grab; release all keys and buttons and retry";
+            if (!released.empty())
+                message += ". The desktop may have missed release of " + released +
+                           "; if it appears stuck, physically tap and release it";
+            else if (pending.synchronization_lost)
+                message += ". Input events were lost; if a key appears stuck, physically tap and release it";
+            throw RuntimeErrorKeyloom(message);
+        }
+    } catch (...) {
+        const std::exception_ptr failure = std::current_exception();
+        try { ungrab(); } catch (...) {}
+        std::rethrow_exception(failure);
+    }
+}
+
 InputDevice::InputDevice(int fd, std::string path, std::string name, DeviceCapabilities capabilities)
     : fd_(fd), path_(std::move(path)), name_(std::move(name)), capabilities_(std::move(capabilities)) {}
 
@@ -103,6 +162,42 @@ bool InputDevice::is_keyboard_device() const {
                            capabilities_.keys.end();
     return has_a && has_enter;
 }
+
+std::vector<int> InputDevice::pressed_key_codes() const {
+    std::vector<unsigned char> keys(kKeyBits, 0);
+    if (::ioctl(fd_, EVIOCGKEY(keys.size()), keys.data()) < 0) {
+        throw std::system_error(errno, std::generic_category(), "EVIOCGKEY");
+    }
+    return collect_bits(keys, KEY_MAX);
+}
+
+PendingInput drain_input_events(int fd) {
+    PendingInput pending;
+    input_event events[64];
+    size_t count = 0;
+    while (true) {
+        const ssize_t bytes = ::read(fd, events, sizeof(events));
+        if (bytes > 0) {
+            pending.any = true;
+            const size_t event_count = static_cast<size_t>(bytes) / sizeof(input_event);
+            for (size_t i = 0; i < event_count; ++i) {
+                if (events[i].type == EV_KEY && events[i].value == 0)
+                    pending.released_codes.insert(events[i].code);
+                if (events[i].type == EV_SYN && events[i].code == SYN_DROPPED)
+                    pending.synchronization_lost = true;
+            }
+            count += static_cast<size_t>(bytes) / sizeof(input_event);
+            if (count >= 4096) throw RuntimeErrorKeyloom("too many pending input events while grabbing");
+            continue;
+        }
+        if (bytes < 0 && errno == EINTR) continue;
+        if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return pending;
+        if (bytes == 0) throw RuntimeErrorKeyloom("input device disconnected while grabbing");
+        throw std::system_error(errno, std::generic_category(), "reading pending input events");
+    }
+}
+
+PendingInput InputDevice::discard_pending_events() { return drain_input_events(fd_); }
 
 void InputDevice::grab() {
     if (fd_ < 0 || grabbed_) return;

@@ -17,12 +17,12 @@ pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
 license=(MIT)
-# The runtime links X11 and libpng for the --get-mouse-pos picker; no other
-# library dependencies.
+# X11 and libpng support the picker; XCB supports GUI transport development.
 depends=(
     glibc
     gcc-libs
     libx11
+    libxcb
     libpng
 )
 makedepends=(

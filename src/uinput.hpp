@@ -4,6 +4,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <sys/types.h>
 
 namespace keyloom {
 
@@ -22,6 +23,10 @@ struct DeviceCapabilities {
     std::vector<int> relative;
     std::vector<AbsAxis> absolute;
 };
+
+using UInputWriter = std::function<ssize_t(int, const void*, size_t)>;
+/// Flush buffered bytes, retaining any unwritten suffix on failure.
+void flush_uinput_buffer(int fd, std::vector<unsigned char>& buffer, const UInputWriter& writer);
 
 /// A virtual device that accepts Linux input events.
 class VirtualInput {

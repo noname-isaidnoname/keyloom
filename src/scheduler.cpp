@@ -6,7 +6,9 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sys/epoll.h>
+#include <utility>
 #include <unistd.h>
 
 namespace keyloom {
@@ -57,6 +59,7 @@ std::coroutine_handle<> Task::Awaiter::await_suspend(std::coroutine_handle<> awa
     // An awaited child is not a spawned task, but the scheduler still has to know
     // the frame exists so a pending timer for it is not pruned.
     Scheduler::current().register_task(handle);
+    handle.promise().started = true;
     return handle;
 }
 
@@ -85,12 +88,14 @@ void Task::Awaiter::await_resume() {
     if (failure) std::rethrow_exception(failure);
 }
 
-Scheduler::Scheduler() {
+Scheduler::Scheduler(WaitFunction wait) : wait_(std::move(wait)) {
+    if (!wait_) wait_ = ::epoll_wait;
     epoll_fd_ = ::epoll_create1(EPOLL_CLOEXEC);
     if (epoll_fd_ < 0) throw RuntimeErrorKeyloom("cannot create an epoll instance");
 }
 
 Scheduler::~Scheduler() {
+    shutdown();
     if (epoll_fd_ >= 0) ::close(epoll_fd_);
     if (g_current == this) g_current = nullptr;
 }
@@ -110,6 +115,8 @@ void Scheduler::spawn(Task task) {
     task.handle.promise().scheduler = this;
     known_.insert(task.handle);
     live_.insert(task.handle);
+    live_order_.push_back(task.handle);
+    if (active_root_ && is_live(active_root_)) add_shutdown_dependency(task.handle, active_root_);
     ready_.push_back(task.handle);
 }
 
@@ -119,6 +126,8 @@ void Scheduler::register_task(handle_type handle) {
 
 void Scheduler::forget_task(handle_type handle) {
     known_.erase(handle);
+    std::erase(ready_, handle);
+    remove_waits(handle);
     for (auto entry = fd_waiters_.begin(); entry != fd_waiters_.end();) {
         if (entry->second == handle) {
             ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, entry->first, nullptr);
@@ -127,6 +136,12 @@ void Scheduler::forget_task(handle_type handle) {
             ++entry;
         }
     }
+}
+
+void Scheduler::remove_waits(handle_type handle) {
+    timer_waits_.erase(handle);
+    std::erase(stop_waiters_, handle);
+    std::erase(drain_waiters_, handle);
 }
 
 // Awaited child tasks are tracked in known_ but not live_ (only spawned tasks
@@ -155,8 +170,12 @@ void Scheduler::cancel(handle_type handle) {
     }
     for (handle_type frame = handle;; frame = frame.promise().child) {
         frame.promise().cancelled = true;
+        remove_waits(frame);
         if (frame == deepest) break;
     }
+    // A stop or fd notification may already have queued this suspension. A
+    // second wake would resume whatever the coroutine awaits next, prematurely.
+    std::erase(ready_, deepest);
     ready_.push_back(deepest);
 }
 
@@ -171,7 +190,11 @@ void Scheduler::check_cancelled(handle_type handle) {
 
 void Scheduler::notify_finished(handle_type handle) {
     known_.erase(handle);
+    std::erase(ready_, handle);
+    remove_waits(handle);
     live_.erase(handle);
+    std::erase(live_order_, handle);
+    remove_dependencies(handle);
     if (live_.size() <= 1 && !drain_waiters_.empty()) {
         for (handle_type waiter : drain_waiters_) {
             if (known_.find(waiter) != known_.end()) ready_.push_back(waiter);
@@ -182,27 +205,36 @@ void Scheduler::notify_finished(handle_type handle) {
 
 void Scheduler::suspend_until(handle_type handle, double seconds) {
     const double deadline = now() + (seconds > 0.0 ? seconds : 0.0);
-    timers_.push(Timer{deadline, timer_sequence_++, handle});
+    const std::uint64_t sequence = timer_sequence_++;
+    timer_waits_[handle] = sequence;
+    timers_.push(Timer{deadline, sequence, handle});
 }
 
-void Scheduler::suspend_on_fd(handle_type handle, int fd) {
+int Scheduler::suspend_on_fd(handle_type handle, int fd) {
     epoll_event event{};
     event.events = EPOLLIN | EPOLLRDHUP;
     event.data.fd = fd;
     if (::epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &event) < 0) {
-        // Already registered (or a dead fd): fall back to an immediate resume so
-        // the reader's own read() reports the real error.
-        ready_.push_back(handle);
-        return;
+        return errno;
     }
     fd_waiters_[fd] = handle;
+    return 0;
 }
 
-void Scheduler::release_fd(int fd) {
+void Scheduler::release_fd(int fd, handle_type owner) {
     const auto found = fd_waiters_.find(fd);
-    if (found == fd_waiters_.end()) return;
+    if (found == fd_waiters_.end() || found->second != owner) return;
     ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
     fd_waiters_.erase(found);
+}
+
+void ReadableAwaiter::await_resume() {
+    scheduler->release_fd(fd, handle);
+    scheduler->check_cancelled(handle);
+    if (registration_error != 0) {
+        throw RuntimeErrorKeyloom("cannot wait for fd " + std::to_string(fd) + ": " +
+                                  std::strerror(registration_error));
+    }
 }
 
 void Scheduler::wait_for_stop(handle_type handle) {
@@ -224,7 +256,20 @@ void Scheduler::wait_for_drain(handle_type handle) {
 void Scheduler::resume(handle_type handle) {
     // A spawned task is live_; an awaited child is only known_. Both are resumable.
     if (known_.find(handle) == known_.end()) return;
+    if (!handle.promise().started && handle.promise().cancelled) {
+        notify_finished(handle);
+        handle.destroy();
+        return;
+    }
+    handle.promise().started = true;
+    const handle_type previous = active_root_;
+    // Awaited children transfer directly without returning to the scheduler;
+    // follow their parent links to associate spawned tasks with the live root.
+    handle_type root = handle;
+    while (root.promise().parent) root = root.promise().parent;
+    active_root_ = root;
     handle.resume();
+    active_root_ = previous;
 }
 
 void Scheduler::pump() {
@@ -243,6 +288,70 @@ void Scheduler::pump() {
     }
 }
 
+void Scheduler::run_ready() {
+    Scheduler* previous = g_current;
+    g_current = this;
+    pump();
+    g_current = previous;
+}
+
+void Scheduler::add_shutdown_dependency(handle_type dependent, handle_type prerequisite) {
+    if (!is_live(dependent) || !is_live(prerequisite))
+        throw RuntimeErrorKeyloom("shutdown dependencies require live spawned tasks");
+    std::vector<handle_type> pending{prerequisite};
+    std::set<handle_type, HandleLess> visited;
+    while (!pending.empty()) {
+        const handle_type current = pending.back();
+        pending.pop_back();
+        if (current == dependent) throw RuntimeErrorKeyloom("cyclic shutdown dependency");
+        if (!visited.insert(current).second) continue;
+        const auto found = shutdown_dependencies_.find(current);
+        if (found != shutdown_dependencies_.end())
+            pending.insert(pending.end(), found->second.begin(), found->second.end());
+    }
+    shutdown_dependencies_[dependent].insert(prerequisite);
+}
+
+void Scheduler::remove_dependencies(handle_type handle) {
+    shutdown_dependencies_.erase(handle);
+    for (auto it = shutdown_dependencies_.begin(); it != shutdown_dependencies_.end();) {
+        it->second.erase(handle);
+        if (it->second.empty()) it = shutdown_dependencies_.erase(it);
+        else ++it;
+    }
+}
+
+void Scheduler::shutdown() {
+    request_stop();
+    Scheduler* previous = g_current;
+    g_current = this;
+    while (!live_order_.empty()) {
+        auto selected = live_order_.end();
+        for (auto candidate = live_order_.rbegin(); candidate != live_order_.rend(); ++candidate) {
+            bool has_dependents = false;
+            for (const auto& entry : shutdown_dependencies_) {
+                if (entry.second.count(*candidate) != 0) {
+                    has_dependents = true;
+                    break;
+                }
+            }
+            if (!has_dependents) {
+                selected = std::prev(candidate.base());
+                break;
+            }
+        }
+        // The public registration method rejects cycles; retain a defensive
+        // fallback so a destructor can still complete if an invariant breaks.
+        if (selected == live_order_.end()) selected = std::prev(live_order_.end());
+        const handle_type handle = *selected;
+        live_order_.erase(selected);
+        live_.erase(handle);
+        remove_dependencies(handle);
+        destroy_chain(*this, handle);
+    }
+    g_current = previous;
+}
+
 void Scheduler::run() {
     Scheduler* previous = g_current;
     g_current = this;
@@ -250,7 +359,12 @@ void Scheduler::run() {
         pump();
         if (live_.empty()) break;
 
-        while (!timers_.empty() && known_.find(timers_.top().handle) == known_.end()) timers_.pop();
+        while (!timers_.empty()) {
+            const Timer& timer = timers_.top();
+            const auto wait = timer_waits_.find(timer.handle);
+            if (wait != timer_waits_.end() && wait->second == timer.sequence) break;
+            timers_.pop();
+        }
 
         int timeout_ms = -1;
         if (!timers_.empty()) {
@@ -260,7 +374,7 @@ void Scheduler::run() {
         if (!ready_.empty()) timeout_ms = 0;
 
         epoll_event events[64];
-        const int count = ::epoll_wait(epoll_fd_, events, 64, timeout_ms);
+        const int count = wait_(epoll_fd_, events, 64, timeout_ms);
         if (count > 0) {
             for (int i = 0; i < count; ++i) {
                 const int fd = events[i].data.fd;
@@ -272,15 +386,21 @@ void Scheduler::run() {
                 if (known_.find(handle) != known_.end()) ready_.push_back(handle);
             }
         } else if (count < 0 && errno != EINTR) {
-            // Nothing else can make progress; leave the loop rather than spin.
-            break;
+            const int error = errno;
+            shutdown();
+            g_current = previous;
+            throw RuntimeErrorKeyloom("epoll_wait failed: " + std::string(std::strerror(error)));
         }
 
         const double time_now = now();
         while (!timers_.empty() && timers_.top().deadline <= time_now) {
             const Timer timer = timers_.top();
             timers_.pop();
-            if (known_.find(timer.handle) != known_.end()) ready_.push_back(timer.handle);
+            const auto wait = timer_waits_.find(timer.handle);
+            if (wait != timer_waits_.end() && wait->second == timer.sequence) {
+                timer_waits_.erase(wait);
+                ready_.push_back(timer.handle);
+            }
         }
     }
     g_current = previous;

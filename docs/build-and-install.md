@@ -106,6 +106,15 @@ default `../..`); it needs no network and no release tarball. `pkgver` must
 stay in sync with `project(keyloom VERSION ...)` in `CMakeLists.txt`. `check()`
 only runs `ctest` when `KEYLOOM_BUILD_TESTS=ON` is passed to `makepkg`.
 
+The package also registers a file association: `*.loom` files get the
+`application/x-keyloom` MIME type, and `keyloom.desktop` is the default
+handler, so double-clicking a script in a file manager runs it. Because
+`Terminal=true` is not honored by every file manager, the desktop entry calls
+`/usr/bin/keyloom-terminal`, a small launcher that detects a terminal
+emulator at runtime (`$TERMINAL` first, then common ones such as konsole,
+kgx and gnome-terminal) and runs `keyloom` inside it. It can also be used
+directly: `keyloom-terminal [--] SCRIPT [keyloom args...]`.
+
 ## Runtime permissions
 
 - Reading physical input needs read access to `/dev/input/event*` (the

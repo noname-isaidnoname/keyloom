@@ -1,0 +1,69 @@
+#!/bin/sh
+# Run keyloom on a script inside a terminal emulator so its output stays
+# visible after the file manager launches it (e.g. double-clicking a .loom
+# file). Installed by the Arch package; not used by make install.
+#
+#   keyloom-terminal [--] SCRIPT [keyloom args...]
+#
+# The terminal is detected at runtime: $TERMINAL (colon-separated, per the
+# freedesktop terminal spec) is tried first, then a list of common emulators.
+# If none is found, keyloom runs in the foreground anyway.
+set -eu
+
+usage() {
+    echo 'usage: keyloom-terminal [--] SCRIPT [keyloom args...]' >&2
+    exit 2
+}
+
+[ $# -ge 1 ] || usage
+if [ "$1" = "--" ]; then
+    shift
+    [ $# -ge 1 ] || usage
+fi
+
+script=$1
+shift
+
+try_terminal() {
+    # $1 is "exe [prefix args...]"; the remaining args go to keyloom.
+    line=$1
+    shift
+    case $line in
+        *\ *) exe=${line%% *}; prefix=${line#* } ;;
+        *)   exe=$line; prefix= ;;
+    esac
+    command -v "$exe" >/dev/null 2>&1 || return 1
+    # prefix is a fixed list of argument words without spaces.
+    # shellcheck disable=SC2086
+    exec $exe $prefix keyloom "$script" "$@"
+}
+
+if [ -n "${TERMINAL:-}" ]; then
+    old_ifs=$IFS
+    IFS=:
+    for entry in $TERMINAL; do
+        [ -n "$entry" ] && try_terminal "$entry" "$@" && exit 0
+    done
+    IFS=$old_ifs
+fi
+
+for entry in \
+    'konsole -e' \
+    'kgx -e' \
+    'gnome-terminal --' \
+    'xfce4-terminal -e' \
+    'alacritty -e' \
+    'kitty' \
+    'foot' \
+    'wezterm start --' \
+    'xterm -e' \
+    'lxterminal -e' \
+    'terminology -e' \
+    'tilix -e' \
+    'rxvt-unicode -e'
+do
+    try_terminal "$entry" "$@" && exit 0
+done
+
+echo 'keyloom-terminal: no terminal emulator found; running keyloom directly' >&2
+exec keyloom "$script" "$@"

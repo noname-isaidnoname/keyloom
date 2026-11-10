@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Keyloom
+Comment=Run a Keyloom automation script
+Exec=keyloom-terminal %f
+MimeType=application/x-keyloom;
+Categories=Utility;
+StartupNotify=true

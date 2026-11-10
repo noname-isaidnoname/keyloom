@@ -75,6 +75,9 @@ add_library(keyloom_core STATIC
     src/scheduler.cpp
     src/input.cpp
     src/runtime.cpp
+    src/runtime_input.cpp
+    src/runtime_output.cpp
+    src/runtime_gui.cpp
     src/mousepos.cpp
     src/picker_xcb.cpp
     src/picker_image.cpp
@@ -93,6 +96,7 @@ if(BUILD_TESTING)
         tests/test_main.cpp
         tests/test_language.cpp
         tests/test_runtime.cpp
+        tests/test_runtime_language.cpp
         tests/test_backends.cpp
         tests/test_mousepos.cpp
         tests/test_scheduler.cpp)

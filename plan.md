@@ -39,12 +39,17 @@ passes, with tests and a commit after each pass. Bump the version at the end.
   in the scheduler test; the call site now checks the result.
 * Commit: "Flatten the coroutine resume chain and run the suite under ASan/UBSan".
 
-### Pass 2 — codegen / build code generation
-* Split the two dominant translation units (`src/runtime.cpp` ~2550 lines,
-  `tests/test_runtime.cpp` ~1780 lines) so the build parallelises and
+### Pass 2 — codegen / build code generation (done)
+* Split the two dominant translation units so the build parallelises and
   incremental rebuilds are cheap.
-* Give the hot translation units explicit, better optimisation settings and
-  check the effect on generated code (object size / runtime behaviour).
+  * `src/runtime.cpp` (2550 lines) → `runtime.cpp` (core), `runtime_input.cpp`,
+    `runtime_output.cpp`, `runtime_gui.cpp`. The shared text helpers moved to
+    `src/runtime_internal.hpp`.
+  * `tests/test_runtime.cpp` (1784 lines) → `test_runtime.cpp` (runtime
+    behaviour) and `test_runtime_language.cpp` (language semantics). The
+    shared fixtures moved to `tests/runtime_fixtures.hpp`.
+* Compile time of the slowest unit: `runtime.cpp` 24.3 s → 11.8 s,
+  `test_runtime.cpp` 19.0 s → 8.6 s. The other units compile in parallel.
 * Commit: "Split the runtime and test translation units".
 
 ### Pass 3 — test speed

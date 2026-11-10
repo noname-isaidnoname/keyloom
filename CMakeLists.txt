@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.2.1
+    VERSION 0.3.0
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -43,6 +43,7 @@ target_compile_options(keyloom_options INTERFACE
 
 add_library(keyloom_core STATIC
     src/value.cpp
+    src/builtins.cpp
     src/lexer.cpp
     src/parser.cpp
     src/checker.cpp

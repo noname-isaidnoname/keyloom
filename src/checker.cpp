@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <vector>
 
+#include "builtins.hpp"
 #include "errors.hpp"
 #include "keys.hpp"
 
@@ -48,12 +49,55 @@ void walk(const std::vector<Node>& nodes, const std::function<void(const Node&)>
     }
 }
 
+/// How deeply a statement sits inside loops and functions.
+struct Scope {
+    int loops = 0;
+    int functions = 0;
+};
+
+/// Walk statements with the loop and function depth of every node.
+void walk_scoped(const std::vector<Node>& nodes, Scope scope,
+                 const std::function<void(const Node&, const Scope&)>& visit) {
+    for (const auto& node : nodes) {
+        Scope inner = scope;
+        if (node.stmt == StmtKind::For || node.stmt == StmtKind::Repeat || node.stmt == StmtKind::While) {
+            ++inner.loops;
+        }
+        visit(node, inner);
+        walk_scoped(node.body, inner, visit);
+        walk_scoped(node.otherwise, inner, visit);
+    }
+}
+
+void walk_expression(const ExprPtr& expr, const std::function<void(const Expr&)>& visit) {
+    if (!expr) return;
+    visit(*expr);
+    for (const auto& argument : expr->args) walk_expression(argument, visit);
+}
+
 std::string canonical_or_empty(const std::string& name) {
     try {
         return canonical_key_name(name);
     } catch (const BackendError&) {
         return std::string();
     }
+}
+
+/// "1" or "2 to 3", for a function that accepts a range of argument counts.
+std::string arity_text(const BuiltinInfo& function) {
+    if (function.max_args < 0) return std::to_string(function.min_args) + " or more";
+    if (function.min_args == function.max_args) return std::to_string(function.min_args);
+    return std::to_string(function.min_args) + " to " + std::to_string(function.max_args);
+}
+
+/// "CTRL+ALT+T", for a diagnostic about a chord binding.
+std::string join_chord(const std::vector<std::string>& parts) {
+    std::string out;
+    for (const auto& part : parts) {
+        if (!out.empty()) out += "+";
+        out += part;
+    }
+    return out;
 }
 
 }  // namespace
@@ -147,6 +191,26 @@ std::vector<Diagnostic> check_script(const Script& script) {
         }
     }
 
+    std::map<std::string, const Function*> functions;
+    for (const auto& function : script.functions) {
+        if (is_builtin_function(function.name)) {
+            out.push_back({"error", "Function " + py_repr_string(function.name) + " shadows a built-in function",
+                           function.line});
+        }
+        if (!functions.emplace(function.name, &function).second) {
+            out.push_back({"error", "Function " + py_repr_string(function.name) + " is declared more than once",
+                           function.line});
+        }
+        std::set<std::string> params;
+        for (const auto& param : function.params) {
+            if (!params.insert(param).second) {
+                out.push_back({"error", "Parameter " + py_repr_string(param) + " is declared more than once in function " +
+                                           py_repr_string(function.name),
+                               function.line});
+            }
+        }
+    }
+
     std::set<std::string> held_tokens;
     std::set<std::string> freed_tokens;
 
@@ -208,15 +272,31 @@ std::vector<Diagnostic> check_script(const Script& script) {
     for (const auto& event : script.events) {
         const std::string& kind = event.event_kind;
         if (kind == "key") {
-            try {
-                validate_key_name(event.event_key);
-            } catch (const BackendError& error) {
-                out.push_back({"error", error.what(), event.line});
+            // A plain binding validates its single key; a chord validates every
+            // key of the chord.
+            const std::vector<std::string> parts =
+                event.chord_parts.empty() ? std::vector<std::string>{event.event_key} : event.chord_parts;
+            for (const auto& part : parts) {
+                try {
+                    validate_key_name(part);
+                } catch (const BackendError& error) {
+                    out.push_back({"error", error.what(), event.line});
+                }
             }
             if (have_panic_key && canonical_or_empty(event.event_key) == panic_key) {
                 out.push_back({"warning",
                                "Binding " + event.event_key + " is unreachable while it is the panic key",
                                event.line});
+            }
+            // A modifier that is the panic key stops the runtime before the
+            // primary key can go down, so the chord never fires.
+            for (size_t index = 0; index + 1 < parts.size(); ++index) {
+                if (have_panic_key && canonical_or_empty(parts[index]) == panic_key) {
+                    out.push_back({"warning",
+                                   "Chord binding " + py_repr_string(join_chord(parts)) +
+                                       " can never fire while " + parts[index] + " is the panic key",
+                                   event.line});
+                }
             }
         }
         if (kind == "mouse" && !is_mouse_button(event.event_key)) {
@@ -296,6 +376,59 @@ std::vector<Diagnostic> check_script(const Script& script) {
         });
     }
     if (!script.remaps.empty()) needs_passthrough = true;
+
+    // Function calls, loop control and `return` placement.
+    const auto check_statements = [&](const std::vector<Node>& nodes, Scope scope) {
+        walk_scoped(nodes, scope, [&](const Node& node, const Scope& inner) {
+            if (node.stmt == StmtKind::Break && inner.loops == 0) {
+                out.push_back({"error", "break is only allowed inside a loop", node.line});
+            }
+            if (node.stmt == StmtKind::Continue && inner.loops == 0) {
+                out.push_back({"error", "continue is only allowed inside a loop", node.line});
+            }
+            if (node.stmt == StmtKind::Return && inner.functions == 0) {
+                out.push_back({"error", "return is only allowed inside a function", node.line});
+            }
+            for (const auto& expr : node.exprs) {
+                walk_expression(expr, [&](const Expr& expression) {
+                    if (expression.kind != Expr::Kind::Call) return;
+                    const std::string& name = expression.name;
+                    const size_t count = expression.args.size();
+                    const BuiltinInfo* builtin = find_builtin_function(name);
+                    if (builtin != nullptr) {
+                        const bool fits = count >= static_cast<size_t>(builtin->min_args) &&
+                                          (builtin->max_args < 0 ||
+                                           count <= static_cast<size_t>(builtin->max_args));
+                        if (!fits) {
+                            out.push_back({"error",
+                                           "Function " + name + "() takes " + arity_text(*builtin) +
+                                               " argument(s), got " + std::to_string(count),
+                                           expression.line});
+                        }
+                        return;
+                    }
+                    const auto found = functions.find(name);
+                    if (found == functions.end()) {
+                        out.push_back({"error", "Unknown function " + py_repr_string(name), expression.line});
+                        return;
+                    }
+                    if (count != found->second->params.size()) {
+                        out.push_back({"error",
+                                       "Function " + name + "() takes " + std::to_string(found->second->params.size()) +
+                                           " argument(s), got " + std::to_string(count),
+                                       expression.line});
+                    }
+                });
+            }
+        });
+    };
+
+    for (const auto& event : script.events) check_statements(event.body, Scope{});
+    for (const auto& function : script.functions) {
+        Scope scope;
+        scope.functions = 1;
+        check_statements(function.body, scope);
+    }
 
     if (needs_pointer && !uinput_writable()) {
         out.push_back({"warning",

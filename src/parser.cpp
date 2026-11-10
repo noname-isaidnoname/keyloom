@@ -28,9 +28,13 @@ const char* stmt_kind_name(StmtKind kind) {
         case StmtKind::If: return "if";
         case StmtKind::Repeat: return "repeat";
         case StmtKind::While: return "while";
+        case StmtKind::For: return "for";
+        case StmtKind::Break: return "break";
+        case StmtKind::Continue: return "continue";
         case StmtKind::Assert: return "assert";
         case StmtKind::Call: return "call";
-    case StmtKind::Send: return "send";
+        case StmtKind::Return: return "return";
+        case StmtKind::Send: return "send";
     }
     return "unknown";
 }
@@ -75,10 +79,12 @@ public:
                 script.remaps.push_back(parse_remap());
             } else if (is_value("gui")) {
                 script.panels.push_back(parse_gui_panel());
+            } else if (is_value("func")) {
+                script.functions.push_back(parse_function());
             } else if (is_value("when")) {
                 script.events.push_back(parse_when());
             } else {
-                error("Only 'option', 'remap', 'gui', and 'when' are allowed at the top level");
+                error("Only 'option', 'remap', 'gui', 'func', and 'when' are allowed at the top level");
             }
             skip_lines();
         }
@@ -147,7 +153,9 @@ private:
         node.line = start.line;
         if (accept("key")) {
             node.event_kind = "key";
-            node.event_key = parse_key_name();
+            const std::vector<std::string> parts = parse_key_chord_parts();
+            node.event_key = parts.back();
+            if (parts.size() > 1) node.chord_parts = parts;
             parse_event_edge(node, "Key");
         } else if (accept("mouse")) {
             node.event_kind = "mouse";
@@ -234,6 +242,25 @@ private:
         remap.target = parse_key_chord();
         end_statement();
         return remap;
+    }
+
+    Function parse_function() {
+        const Token start = expect("func");
+        Function function;
+        function.line = start.line;
+        function.name = expect_kind(TokenKind::Ident).value.to_string();
+        if (accept("(")) {
+            if (!accept(")")) {
+                while (true) {
+                    function.params.push_back(expect_kind(TokenKind::Ident).value.to_string());
+                    if (accept(")")) break;
+                    expect(",");
+                }
+            }
+        }
+        expect("{");
+        function.body = parse_block();
+        return function;
     }
 
     void parse_event_edge(Node& node, const char* noun) {
@@ -422,11 +449,59 @@ private:
             const size_t saved = index_;
             skip_lines();
             if (accept("else")) {
-                expect("{");
-                node.otherwise = parse_block();
+                if (is_value("if")) {
+                    // `else if` chains: the nested block is stored as the only
+                    // statement of the else branch.
+                    node.otherwise.push_back(parse_statement());
+                } else {
+                    expect("{");
+                    node.otherwise = parse_block();
+                }
             } else {
                 index_ = saved;
             }
+            return node;
+        }
+        if (accept("for")) {
+            node.stmt = StmtKind::For;
+            node.a = expect_kind(TokenKind::Ident).value.to_string();
+            if (accept("=")) {
+                node.exprs.push_back(parse_expr());
+                std::string direction = expect_kind(TokenKind::Ident).value.to_string();
+                for (char& c : direction) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (direction != "to" && direction != "downto") {
+                    error("For loop range must use 'to' or 'downto'");
+                }
+                node.b = direction;
+                node.exprs.push_back(parse_expr());
+                if (accept("step")) {
+                    node.exprs.push_back(parse_expr());
+                }
+            } else {
+                expect("in");
+                node.b = "in";
+                node.exprs.push_back(parse_expr());
+            }
+            expect("{");
+            node.body = parse_block();
+            return node;
+        }
+        if (accept("break")) {
+            node.stmt = StmtKind::Break;
+            end_statement();
+            return node;
+        }
+        if (accept("continue")) {
+            node.stmt = StmtKind::Continue;
+            end_statement();
+            return node;
+        }
+        if (accept("return")) {
+            node.stmt = StmtKind::Return;
+            if (current().kind != TokenKind::Newline && !is_value("}")) {
+                node.exprs.push_back(parse_expr());
+            }
+            end_statement();
             return node;
         }
         if (accept("repeat")) {
@@ -481,9 +556,17 @@ private:
     }
 
     std::string parse_key_chord() {
-        std::string chord = parse_key_name();
-        while (accept("+")) chord += "+" + parse_key_name();
+        const std::vector<std::string> parts = parse_key_chord_parts();
+        std::string chord = parts.front();
+        for (size_t index = 1; index < parts.size(); ++index) chord += "+" + parts[index];
         return chord;
+    }
+
+    std::vector<std::string> parse_key_chord_parts() {
+        std::vector<std::string> parts;
+        parts.push_back(parse_key_name());
+        while (accept("+")) parts.push_back(parse_key_name());
+        return parts;
     }
 
     double parse_duration() {
@@ -550,8 +633,32 @@ private:
         } else if (token.value.type == Value::Type::Str && token.value.text == "(") {
             left = parse_expr();
             expect(")");
+        } else if (token.value.type == Value::Type::Str && token.value.text == "[") {
+            left = std::make_shared<Expr>();
+            left->kind = Expr::Kind::List;
+            left->line = token.line;
+            if (!accept("]")) {
+                while (true) {
+                    left->args.push_back(parse_expr());
+                    if (accept("]")) break;
+                    expect(",");
+                }
+            }
         } else {
             raise_at("Expected an expression", token);
+        }
+
+        // Subscripts bind tighter than any operator: `items[0] + 1`.
+        while (is_value("[")) {
+            advance();
+            ExprPtr index = parse_expr();
+            expect("]");
+            ExprPtr node = std::make_shared<Expr>();
+            node->kind = Expr::Kind::Index;
+            node->line = index->line;
+            node->args.push_back(left);
+            node->args.push_back(index);
+            left = node;
         }
 
         while (current().kind == TokenKind::Op && current().value.type == Value::Type::Str) {

@@ -1,0 +1,49 @@
+# Chord hotkeys and user-defined functions.
+#
+# Ctrl+Alt+T opens a terminal, Ctrl+Alt+L locks the screen, and Ctrl+Alt+C
+# copies the selection into a log line. The chord only fires while every
+# modifier is held. F11 suspends the chord bindings, F12 brings them back.
+loom "hotkeys" {
+    option output = "auto"
+    option panic = "PAUSE"
+
+    func report(name, detail) {
+        log name + ": " + detail
+        return detail
+    }
+
+    func terminal_command() {
+        if active_window_process() == "" {
+            return "konsole"
+        }
+        return "gnome-terminal"
+    }
+
+    when key CTRL+ALT+T goes down {
+        set shell = terminal_command()
+        call report("terminal", shell)
+    }
+
+    when key CTRL+ALT+L goes down {
+        call report("lock", "locking the session")
+    }
+
+    when key CTRL+ALT+C goes down {
+        clip read into selection
+        call report("clipboard", upper(trim(selection)))
+    }
+
+    when key F11 goes down {
+        call set_hotkey_enabled("CTRL+ALT+T", false)
+        call set_hotkey_enabled("CTRL+ALT+L", false)
+        call set_hotkey_enabled("CTRL+ALT+C", false)
+        notify "Chord hotkeys suspended"
+    }
+
+    when key F12 goes down {
+        call set_hotkey_enabled("CTRL+ALT+T", true)
+        call set_hotkey_enabled("CTRL+ALT+L", true)
+        call set_hotkey_enabled("CTRL+ALT+C", true)
+        notify "Chord hotkeys enabled"
+    }
+}

@@ -1,0 +1,58 @@
+# A text expander: type a short trigger and Keyloom writes the long text.
+#
+# Press F8 and pick an expansion, or use the panel to add your own. The
+# expansion list is a plain list of strings, so it is easy to extend.
+loom "text-expander" {
+    option output = "auto"
+    option panic = "PAUSE"
+
+    gui "Text Expander" {
+        label "Trigger:"
+        input trigger = "sig"
+        label "Text:"
+        input text = "Kind regards,\nKeyloom"
+        button add = "Add expansion"
+    }
+
+    func find_expansion(trigger, items) {
+        for item in items {
+            if starts_with(item, trigger + "=") {
+                return substr(item, len(trigger) + 1)
+            }
+        }
+        return ""
+    }
+
+    func expansion_list() {
+        return ["sig=Kind regards,\nKeyloom", "addr=127.0.0.1", "path=/home/user/Documents"]
+    }
+
+    when app starts {
+        set items = expansion_list()
+        log "Text expander ready. Press F8 to write the signature."
+    }
+
+    when gui add clicked {
+        set items = expansion_list()
+        set trigger = trim(gui_value("trigger"))
+        set text = gui_value("text")
+        if trigger == "" {
+            notify "A trigger cannot be empty."
+        } else {
+            call append(items, trigger + "=" + text)
+            notify "Added " + trigger + "."
+        }
+    }
+
+    when key F8 goes down {
+        set items = expansion_list()
+        set trigger = trim(gui_value("trigger"))
+        set expansion = find_expansion(trigger, items)
+        if expansion == "" {
+            notify "No expansion for " + trigger + "."
+        } else {
+            type expansion
+            log "Typed " + str(len(expansion)) + " character(s)."
+        }
+    }
+}

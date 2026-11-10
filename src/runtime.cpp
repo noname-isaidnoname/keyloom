@@ -20,6 +20,7 @@
 #include <unordered_map>
 #include <unistd.h>
 
+#include "builtins.hpp"
 #include "errors.hpp"
 #include "keys.hpp"
 #include "subprocess.hpp"
@@ -59,9 +60,37 @@ const char* py_type_name(const Value& value) {
         case Value::Type::Float: return "float";
         case Value::Type::Bool: return "bool";
         case Value::Type::Str: return "str";
+        case Value::Type::List: return "list";
         case Value::Type::None: return "NoneType";
     }
     return "object";
+}
+
+/// Control flow inside a loop body. The loop handler catches these; they
+/// never reach the script-level error reporting.
+struct BreakSignal : std::exception {
+    const char* what() const noexcept override { return "break"; }
+};
+
+struct ContinueSignal : std::exception {
+    const char* what() const noexcept override { return "continue"; }
+};
+
+/// Carries the value of a `return` statement out of a function body.
+struct ReturnSignal {
+    Value value = Value::none();
+};
+
+/// Runs a callable when the scope ends, whatever happens inside it.
+template <typename Fn>
+struct ScopeExit {
+    Fn action;
+    ~ScopeExit() { action(); }
+};
+
+template <typename Fn>
+ScopeExit<Fn> make_scope_exit(Fn action) {
+    return ScopeExit<Fn>{std::move(action)};
 }
 
 bool numeric_like(const Value& value) {
@@ -193,6 +222,18 @@ size_t utf8_length(const std::string& text) {
     return count;
 }
 
+/// Byte offset of the character at `index`; clamped to the end of the text.
+size_t utf8_offset(const std::string& text, size_t index) {
+    size_t offset = 0;
+    size_t count = 0;
+    while (offset < text.size() && count < index) {
+        ++offset;
+        while (offset < text.size() && (static_cast<unsigned char>(text[offset]) & 0xC0) == 0x80) ++offset;
+        ++count;
+    }
+    return offset;
+}
+
 /// Releases a mouse hold token when a tap or statement scope ends, including
 /// when the task is cancelled mid-tap.
 struct ButtonRelease {
@@ -220,8 +261,20 @@ bool event_binds_key(const Node& event, const std::string& key) {
     return false;
 }
 
+/// The identifier of a binding. A chord keeps every key of the chord, so
+/// `set_hotkey_enabled("CTRL+ALT+T", false)` addresses the whole binding.
 std::string hotkey_id_for_event(const Node& event) {
-    if (event.event_kind == "key") return canonical_key(event.event_key);
+    if (event.event_kind == "key") {
+        if (!event.chord_parts.empty()) {
+            std::string id;
+            for (size_t index = 0; index < event.chord_parts.size(); ++index) {
+                if (index > 0) id += "+";
+                id += canonical_key(event.chord_parts[index]);
+            }
+            return id;
+        }
+        return canonical_key(event.event_key);
+    }
     if (event.event_kind == "mouse") return canonical_mouse_event_key(event.event_key);
     return std::string();
 }
@@ -231,6 +284,20 @@ std::string hotkey_id_for_name(const std::string& raw_name) {
     const std::string lower = lower_ascii(name);
     if (lower.rfind("mouse:", 0) == 0) return canonical_mouse_event_key(name.substr(6));
     if (lower.rfind("mouse_", 0) == 0) return canonical_mouse_event_key(name);
+    if (name.find('+') != std::string::npos) {
+        std::string id;
+        size_t start = 0;
+        while (true) {
+            const size_t plus = name.find('+', start);
+            const std::string part =
+                plus == std::string::npos ? name.substr(start) : name.substr(start, plus - start);
+            if (!id.empty()) id += "+";
+            id += canonical_key(trim_ascii(part));
+            if (plus == std::string::npos) break;
+            start = plus + 1;
+        }
+        return id;
+    }
     return canonical_key(name);
 }
 
@@ -358,6 +425,15 @@ bool Runtime::hotkey_enabled(const Node& event) const {
     return true;
 }
 
+bool Runtime::chord_modifiers_held(const Node& event) const {
+    if (event.chord_parts.size() < 2) return true;
+    for (size_t index = 0; index + 1 < event.chord_parts.size(); ++index) {
+        const std::string modifier = canonical_key(event.chord_parts[index]);
+        if (pressed_keys_.find(modifier) == pressed_keys_.end()) return false;
+    }
+    return true;
+}
+
 Runtime::Runtime(Script script) : Runtime(std::move(script), Options{}) {}
 
 Runtime::Runtime(Script script, Options options)
@@ -379,6 +455,8 @@ Runtime::Runtime(Script script, Options options)
     variables_["pi"] = Value::of_float(3.14159265358979323846);
     variables_["e"] = Value::of_float(2.71828182845904523536);
     started_at_ = scheduler_.now();
+
+    for (const auto& function : script_.functions) functions_.emplace(function.name, &function);
 
     std::random_device device;
     const auto seed = static_cast<std::uint64_t>(device()) ^
@@ -908,6 +986,8 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
         }
         for (const auto& event : script_.events) {
             if (!event_binds_key(event, key)) continue;
+            // A chord only fires while every modifier of the chord is held.
+            if (!chord_modifiers_held(event)) continue;
             if (!hotkey_enabled(event)) continue;
             if (event.edge == "down") {
                 spawn_background(safe_dispatch(event, key, "down"));
@@ -1003,7 +1083,7 @@ Task Runtime::safe_dispatch(const Node& event, std::string key, std::string edge
 }
 
 Task Runtime::dispatch(const Node& event, std::string key, std::string edge) {
-    const EventContext context{event.event_kind, std::move(key), std::move(edge)};
+    const EventContext context{event.event_kind, std::move(key), std::move(edge), hotkey_id_for_event(event)};
     co_await execute_nodes(event.body, context);
 }
 
@@ -1018,14 +1098,22 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
     switch (node.stmt) {
         case StmtKind::Cursor: {
             if (node.a == "warp") {
-                const int x = static_cast<int>(eval(node.exprs.at(0), context).as_int());
-                const int y = static_cast<int>(eval(node.exprs.at(1), context).as_int());
+                Value x_value;
+                Value y_value;
+                co_await eval(node.exprs.at(0), context, x_value);
+                co_await eval(node.exprs.at(1), context, y_value);
+                const int x = static_cast<int>(x_value.as_int());
+                const int y = static_cast<int>(y_value.as_int());
                 backend_->warp(x, y);
                 variables_["cursor_x"] = Value::of_int(x);
                 variables_["cursor_y"] = Value::of_int(y);
             } else if (node.a == "move") {
-                const int dx = static_cast<int>(eval(node.exprs.at(0), context).as_int());
-                const int dy = static_cast<int>(eval(node.exprs.at(1), context).as_int());
+                Value dx_value;
+                Value dy_value;
+                co_await eval(node.exprs.at(0), context, dx_value);
+                co_await eval(node.exprs.at(1), context, dy_value);
+                const int dx = static_cast<int>(dx_value.as_int());
+                const int dy = static_cast<int>(dy_value.as_int());
                 backend_->move(dx, dy);
                 const auto current_x = variables_.find("cursor_x");
                 const auto current_y = variables_.find("cursor_y");
@@ -1038,8 +1126,12 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 variables_["cursor_x"] = Value::of_int(width_ / 2);
                 variables_["cursor_y"] = Value::of_int(height_ / 2);
             } else if (node.a == "glide") {
-                const int x = static_cast<int>(eval(node.exprs.at(0), context).as_int());
-                const int y = static_cast<int>(eval(node.exprs.at(1), context).as_int());
+                Value x_value;
+                Value y_value;
+                co_await eval(node.exprs.at(0), context, x_value);
+                co_await eval(node.exprs.at(1), context, y_value);
+                const int x = static_cast<int>(x_value.as_int());
+                const int y = static_cast<int>(y_value.as_int());
                 co_await glide(x, y, node.duration);
             }
             break;
@@ -1101,80 +1193,215 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             // Consumption is collected before devices are grabbed so the first
             // key-down is swallowed; the declaration has no per-event effect.
             break;
-        case StmtKind::Type:
-            backend_->type_text(eval(node.exprs.at(0), context).to_string());
+        case StmtKind::Type: {
+            Value text;
+            co_await eval(node.exprs.at(0), context, text);
+            backend_->type_text(text.to_string());
             break;
+        }
         case StmtKind::Wait:
             {
-                const double seconds = node.exprs.empty() ? node.duration : eval(node.exprs.at(0), context).as_double();
+                Value seconds_value;
+                if (node.exprs.empty()) {
+                    seconds_value = Value::of_float(node.duration);
+                } else {
+                    co_await eval(node.exprs.at(0), context, seconds_value);
+                }
+                const double seconds = seconds_value.as_double();
                 if (!std::isfinite(seconds) || seconds < 0) throw RuntimeErrorKeyloom("wait duration must be finite and non-negative");
                 co_await sleep_for(seconds);
             }
             break;
         case StmtKind::Scroll: {
-            const int x = static_cast<int>(eval(node.exprs.at(0), context).as_int());
-            const int y = static_cast<int>(eval(node.exprs.at(1), context).as_int());
+            Value x_value;
+            Value y_value;
+            co_await eval(node.exprs.at(0), context, x_value);
+            co_await eval(node.exprs.at(1), context, y_value);
+            const int x = static_cast<int>(x_value.as_int());
+            const int y = static_cast<int>(y_value.as_int());
             backend_->scroll(x, y);
             break;
         }
-        case StmtKind::Log:
-            std::cout << eval(node.exprs.at(0), context).to_string() << '\n' << std::flush;
+        case StmtKind::Log: {
+            Value message;
+            co_await eval(node.exprs.at(0), context, message);
+            std::cout << message.to_string() << '\n' << std::flush;
             break;
-        case StmtKind::Notify:
-            notify_desktop(eval(node.exprs.at(0), context).to_string());
+        }
+        case StmtKind::Notify: {
+            Value message;
+            co_await eval(node.exprs.at(0), context, message);
+            notify_desktop(message.to_string());
             break;
-        case StmtKind::ClipWrite:
-            clipboard("write", eval(node.exprs.at(0), context).to_string());
+        }
+        case StmtKind::ClipWrite: {
+            Value text;
+            co_await eval(node.exprs.at(0), context, text);
+            clipboard("write", text.to_string());
             break;
+        }
         case StmtKind::ClipRead:
-            variables_[node.a] = Value::of_str(clipboard("read"));
+            assign_variable(node.a, Value::of_str(clipboard("read")));
             break;
-        case StmtKind::Launch:
-            launch_program(eval(node.exprs.at(0), context).to_string());
+        case StmtKind::Launch: {
+            Value command;
+            co_await eval(node.exprs.at(0), context, command);
+            launch_program(command.to_string());
             break;
-        case StmtKind::Set:
-            variables_[node.a] = eval(node.exprs.at(0), context);
+        }
+        case StmtKind::Set: {
+            Value value;
+            co_await eval(node.exprs.at(0), context, value);
+            assign_variable(node.a, std::move(value));
             break;
+        }
         case StmtKind::If: {
-            const bool condition = eval(node.exprs.at(0), context).truthy();
+            Value condition_value;
+            co_await eval(node.exprs.at(0), context, condition_value);
+            const bool condition = condition_value.truthy();
             co_await execute_nodes(condition ? node.body : node.otherwise, context);
             break;
         }
         case StmtKind::Repeat: {
-            const long long count = eval(node.exprs.at(0), context).as_int();
+            Value count_value;
+            co_await eval(node.exprs.at(0), context, count_value);
+            const long long count = count_value.as_int();
             if (count < 0 || count > kMaxLoop) {
                 throw RuntimeErrorKeyloom("repeat count must be from 0 to " + std::to_string(kMaxLoop));
             }
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
             for (long long index = 0; index < count; ++index) {
                 if (scheduler_.stop_requested()) break;
-                co_await execute_nodes(node.body, context);
+                try {
+                    co_await execute_nodes(node.body, context);
+                } catch (const BreakSignal&) {
+                    break;
+                } catch (const ContinueSignal&) {
+                    continue;
+                }
             }
             break;
         }
         case StmtKind::While: {
             long long iterations = 0;
-            while (eval(node.exprs.at(0), context).truthy()) {
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
+            Value condition;
+            while (true) {
+                co_await eval(node.exprs.at(0), context, condition);
+                if (!condition.truthy()) break;
                 if (scheduler_.stop_requested()) break;
                 ++iterations;
                 if (iterations > kMaxLoop) {
                     throw RuntimeErrorKeyloom("while loop exceeded safety limit (" + std::to_string(kMaxLoop) +
                                               " iterations)");
                 }
-                co_await execute_nodes(node.body, context);
+                try {
+                    co_await execute_nodes(node.body, context);
+                } catch (const BreakSignal&) {
+                    break;
+                } catch (const ContinueSignal&) {
+                    continue;
+                }
             }
             break;
         }
-        case StmtKind::Assert:
-            if (!eval(node.exprs.at(0), context).truthy()) {
+        case StmtKind::For: {
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
+            if (node.b == "in") {
+                Value items;
+                co_await eval(node.exprs.at(0), context, items);
+                if (!items.is_list()) {
+                    throw RuntimeErrorKeyloom(std::string("for ... in requires a list, got ") + py_type_name(items));
+                }
+                // Iterate a snapshot so the body may change the list.
+                const std::vector<Value> snapshot = items.list_items();
+                long long iterations = 0;
+                for (const Value& item : snapshot) {
+                    if (scheduler_.stop_requested()) break;
+                    if (++iterations > kMaxLoop) {
+                        throw RuntimeErrorKeyloom("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                                                  " iterations)");
+                    }
+                    assign_variable(node.a, item);
+                    try {
+                        co_await execute_nodes(node.body, context);
+                    } catch (const BreakSignal&) {
+                        break;
+                    } catch (const ContinueSignal&) {
+                        continue;
+                    }
+                }
+            } else {
+                Value start_value;
+                Value end_value;
+                co_await eval(node.exprs.at(0), context, start_value);
+                co_await eval(node.exprs.at(1), context, end_value);
+                const long long start = start_value.as_int();
+                const long long end = end_value.as_int();
+                long long step = node.b == "downto" ? -1 : 1;
+                if (node.exprs.size() > 2) {
+                    Value step_value;
+                    co_await eval(node.exprs.at(2), context, step_value);
+                    step = step_value.as_int();
+                }
+                if (step == 0) throw RuntimeErrorKeyloom("for loop step must not be zero");
+                long long iterations = 0;
+                for (long long value = start; step > 0 ? value <= end : value >= end; value += step) {
+                    if (scheduler_.stop_requested()) break;
+                    if (++iterations > kMaxLoop) {
+                        throw RuntimeErrorKeyloom("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                                                  " iterations)");
+                    }
+                    assign_variable(node.a, Value::of_int(value));
+                    try {
+                        co_await execute_nodes(node.body, context);
+                    } catch (const BreakSignal&) {
+                        break;
+                    } catch (const ContinueSignal&) {
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+        case StmtKind::Break:
+            if (loop_depth_ == 0) throw RuntimeErrorKeyloom("break outside a loop");
+            throw BreakSignal{};
+        case StmtKind::Continue:
+            if (loop_depth_ == 0) throw RuntimeErrorKeyloom("continue outside a loop");
+            throw ContinueSignal{};
+        case StmtKind::Return: {
+            if (function_depth_ == 0) throw RuntimeErrorKeyloom("return outside a function");
+            ReturnSignal signal;
+            if (!node.exprs.empty()) {
+                Value value;
+                co_await eval(node.exprs.at(0), context, value);
+                signal.value = std::move(value);
+            }
+            throw signal;
+        }
+        case StmtKind::Assert: {
+            Value condition;
+            co_await eval(node.exprs.at(0), context, condition);
+            if (!condition.truthy()) {
                 throw RuntimeErrorKeyloom("assertion failed at line " + std::to_string(node.line));
             }
             break;
-        case StmtKind::Send:
-            send_string(eval(node.exprs.at(0), context).to_string());
+        }
+        case StmtKind::Send: {
+            Value text;
+            co_await eval(node.exprs.at(0), context, text);
+            send_string(text.to_string());
             break;
-        case StmtKind::Call:
-            eval(node.exprs.at(0), context);
+        }
+        case StmtKind::Call: {
+            Value result;
+            co_await eval(node.exprs.at(0), context, result);
             break;
+        }
     }
 }
 
@@ -1601,6 +1828,64 @@ std::map<std::string, std::string> Runtime::active_window_info() const {
     return info;
 }
 
+bool Runtime::lookup_variable(const std::string& name, Value& out) const {
+    if (!function_scopes_.empty()) {
+        const auto local = function_scopes_.back().find(name);
+        if (local != function_scopes_.back().end()) {
+            out = local->second;
+            return true;
+        }
+    }
+    const auto found = variables_.find(name);
+    if (found == variables_.end()) return false;
+    out = found->second;
+    return true;
+}
+
+void Runtime::assign_variable(const std::string& name, Value value) {
+    if (!function_scopes_.empty()) {
+        function_scopes_.back()[name] = std::move(value);
+        return;
+    }
+    variables_[name] = std::move(value);
+}
+
+Task Runtime::call_user_function(const Function& function, std::vector<Value> args, const EventContext& context,
+                                 Value& out) {
+    if (args.size() != function.params.size()) {
+        throw RuntimeErrorKeyloom("Function " + py_repr_string(function.name) + "() takes " +
+                                  std::to_string(function.params.size()) + " argument(s), got " +
+                                  std::to_string(args.size()));
+    }
+    if (function_depth_ >= kMaxCallDepth) {
+        throw RuntimeErrorKeyloom("Maximum function call depth exceeded (" + std::to_string(kMaxCallDepth) + ")");
+    }
+    ++function_depth_;
+    const auto depth = make_scope_exit([this] { --function_depth_; });
+
+    // A function has no loop of its own, so `break` and `continue` inside it
+    // are errors even when the call sits in a loop.
+    const int caller_loop_depth = loop_depth_;
+    loop_depth_ = 0;
+    const auto restore_loop_depth = make_scope_exit([this, caller_loop_depth] { loop_depth_ = caller_loop_depth; });
+
+    // The function gets its own scope: the parameters are seeded into it and
+    // every assignment inside the body stays there.
+    std::map<std::string, Value> scope;
+    for (size_t index = 0; index < function.params.size(); ++index) {
+        scope[function.params[index]] = std::move(args[index]);
+    }
+    function_scopes_.push_back(std::move(scope));
+    const auto pop = make_scope_exit([this] { function_scopes_.pop_back(); });
+
+    out = Value::none();
+    try {
+        co_await execute_nodes(function.body, context);
+    } catch (const ReturnSignal& signal) {
+        out = signal.value;
+    }
+}
+
 Value Runtime::call_function(const std::string& name, std::vector<Value> args, const EventContext& context) {
     const auto require = [&](size_t count) {
         if (args.size() == count) return;
@@ -1680,6 +1965,9 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
     if (name == "len") {
         require(1);
+        if (args[0].type == Value::Type::List) {
+            return Value::of_int(static_cast<long long>(args[0].list_items().size()));
+        }
         if (args[0].type != Value::Type::Str) {
             throw RuntimeErrorKeyloom(std::string("object of type '") + py_type_name(args[0]) +
                                       "' has no len()");
@@ -1717,9 +2005,13 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             suspended_hotkeys_ = true;
             suspended_exempt_hotkeys_.clear();
             if (context.event_kind == "key" || context.event_kind == "mouse") {
-                const std::string id = context.event_kind == "key"
-                                           ? canonical_key(context.key)
-                                           : canonical_mouse_event_key(context.key);
+                // The binding that suspended the script stays enabled, so it
+                // can turn the suspension off again.
+                const std::string id = context.hotkey_id.empty()
+                                           ? (context.event_kind == "key"
+                                                  ? canonical_key(context.key)
+                                                  : canonical_mouse_event_key(context.key))
+                                           : context.hotkey_id;
                 if (!id.empty()) suspended_exempt_hotkeys_.insert(id);
             }
         } else {
@@ -1846,56 +2138,274 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         require(0);
         return Value::of_int(height_);
     }
+
+    // Strings.
+    const auto require_string = [&](size_t index) -> const std::string& {
+        if (args[index].type != Value::Type::Str) {
+            throw RuntimeErrorKeyloom(name + "() expects a string, got " + py_type_name(args[index]));
+        }
+        return args[index].text;
+    };
+    if (name == "upper") {
+        require(1);
+        std::string text = require_string(0);
+        for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        return Value::of_str(std::move(text));
+    }
+    if (name == "lower") {
+        require(1);
+        std::string text = require_string(0);
+        for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return Value::of_str(std::move(text));
+    }
+    if (name == "trim") {
+        require(1);
+        return Value::of_str(trim_ascii(require_string(0)));
+    }
+    if (name == "starts_with") {
+        require(2);
+        const std::string& text = require_string(0);
+        const std::string& prefix = require_string(1);
+        return Value::of_bool(text.rfind(prefix, 0) == 0);
+    }
+    if (name == "ends_with") {
+        require(2);
+        const std::string& text = require_string(0);
+        const std::string& suffix = require_string(1);
+        if (suffix.size() > text.size()) return Value::of_bool(false);
+        return Value::of_bool(text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0);
+    }
+    if (name == "contains") {
+        require(2);
+        if (args[0].is_list()) {
+            for (const Value& item : args[0].list_items()) {
+                if (value_equals(item, args[1])) return Value::of_bool(true);
+            }
+            return Value::of_bool(false);
+        }
+        const std::string& text = require_string(0);
+        return Value::of_bool(text.find(require_string(1)) != std::string::npos);
+    }
+    if (name == "replace") {
+        require(3);
+        const std::string& text = require_string(0);
+        const std::string& from = require_string(1);
+        const std::string& to = require_string(2);
+        if (from.empty()) return Value::of_str(text);
+        std::string out;
+        size_t start = 0;
+        while (true) {
+            const size_t found = text.find(from, start);
+            if (found == std::string::npos) {
+                out.append(text, start, std::string::npos);
+                break;
+            }
+            out.append(text, start, found - start);
+            out += to;
+            start = found + from.size();
+        }
+        return Value::of_str(std::move(out));
+    }
+    if (name == "substr") {
+        if (args.size() < 2 || args.size() > 3) {
+            throw RuntimeErrorKeyloom("Invalid arguments for substr(): expected 2 or 3 argument(s), got " +
+                                      std::to_string(args.size()));
+        }
+        const std::string& text = require_string(0);
+        const long long total = static_cast<long long>(utf8_length(text));
+        long long start = args[1].as_int();
+        if (start < 0) start += total;
+        if (start < 0) start = 0;
+        if (start > total) start = total;
+        long long length = args.size() > 2 ? args[2].as_int() : total - start;
+        if (length < 0) length = 0;
+        if (start + length > total) length = total - start;
+        const size_t begin = utf8_offset(text, static_cast<size_t>(start));
+        const size_t end = utf8_offset(text, static_cast<size_t>(start + length));
+        return Value::of_str(text.substr(begin, end - begin));
+    }
+    if (name == "index_of") {
+        require(2);
+        const std::string& text = require_string(0);
+        const std::string& needle = require_string(1);
+        const size_t position = text.find(needle);
+        if (position == std::string::npos) return Value::of_int(-1);
+        return Value::of_int(static_cast<long long>(utf8_length(text.substr(0, position))));
+    }
+
+    // Lists.
+    if (name == "join") {
+        require(2);
+        const std::string& separator = require_string(1);
+        std::string out;
+        const std::vector<Value>& items = args[0].list_items();
+        for (size_t index = 0; index < items.size(); ++index) {
+            if (index > 0) out += separator;
+            if (items[index].type != Value::Type::Str) {
+                throw RuntimeErrorKeyloom(std::string("join() expects a list of strings, got ") + py_type_name(items[index]));
+            }
+            out += items[index].text;
+        }
+        return Value::of_str(std::move(out));
+    }
+    if (name == "split") {
+        require(2);
+        const std::string& text = require_string(0);
+        const std::string& separator = require_string(1);
+        if (separator.empty()) throw RuntimeErrorKeyloom("split() separator cannot be empty");
+        std::vector<Value> parts;
+        size_t start = 0;
+        while (true) {
+            const size_t found = text.find(separator, start);
+            if (found == std::string::npos) {
+                parts.push_back(Value::of_str(text.substr(start)));
+                break;
+            }
+            parts.push_back(Value::of_str(text.substr(start, found - start)));
+            start = found + separator.size();
+        }
+        return Value::of_list(std::move(parts));
+    }
+    if (name == "append") {
+        require(2);
+        std::vector<Value>& items = args[0].list_items();
+        items.push_back(args[1]);
+        return args[0];
+    }
+    if (name == "sort") {
+        require(1);
+        std::vector<Value>& items = args[0].list_items();
+        std::stable_sort(items.begin(), items.end(),
+                         [](const Value& left, const Value& right) { return compare_values(left, right) < 0; });
+        return args[0];
+    }
+
+    if (is_builtin_function(name)) {
+        throw RuntimeErrorKeyloom("Function " + py_repr_string(name) + " is declared but not implemented");
+    }
     throw RuntimeErrorKeyloom("Unknown function " + py_repr_string(name));
 }
 
-Value Runtime::eval(const ExprPtr& expr, const EventContext& context) {
+Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out) {
     switch (expr->kind) {
         case Expr::Kind::Literal:
-            return expr->literal;
+            out = expr->literal;
+            break;
         case Expr::Kind::Variable: {
-            if (expr->name == "event_key") return Value::of_str(context.key);
-            if (expr->name == "event_edge") return Value::of_str(context.edge);
-            const auto found = variables_.find(expr->name);
-            if (found == variables_.end()) {
+            if (expr->name == "event_key") {
+                out = Value::of_str(context.key);
+                break;
+            }
+            if (expr->name == "event_edge") {
+                out = Value::of_str(context.edge);
+                break;
+            }
+            Value value;
+            if (!lookup_variable(expr->name, value)) {
                 throw RuntimeErrorKeyloom("Unknown variable " + py_repr_string(expr->name));
             }
-            return found->second;
+            out = std::move(value);
+            break;
+        }
+        case Expr::Kind::List: {
+            std::vector<Value> values;
+            values.reserve(expr->args.size());
+            for (const auto& argument : expr->args) {
+                Value value;
+                co_await eval(argument, context, value);
+                values.push_back(std::move(value));
+            }
+            out = Value::of_list(std::move(values));
+            break;
+        }
+        case Expr::Kind::Index: {
+            Value base;
+            Value index_value;
+            co_await eval(expr->args.at(0), context, base);
+            co_await eval(expr->args.at(1), context, index_value);
+            if (!base.is_list()) {
+                throw RuntimeErrorKeyloom(std::string("only a list can be indexed, got ") + py_type_name(base));
+            }
+            const std::vector<Value>& items = base.list_items();
+            long long index = index_value.as_int();
+            if (index < 0) index += static_cast<long long>(items.size());
+            if (index < 0 || index >= static_cast<long long>(items.size())) {
+                throw RuntimeErrorKeyloom("list index out of range");
+            }
+            out = items[static_cast<size_t>(index)];
+            break;
         }
         case Expr::Kind::Unary: {
-            const Value value = eval(expr->args.at(0), context);
+            Value value;
+            co_await eval(expr->args.at(0), context, value);
             if (expr->name == "-") {
-                if (value.type == Value::Type::Float) return Value::of_float(-value.real);
-                return Value::of_int(-value.as_int());
+                if (value.type == Value::Type::Float) {
+                    out = Value::of_float(-value.real);
+                } else {
+                    out = Value::of_int(-value.as_int());
+                }
+                break;
             }
-            if (expr->name == "+") return value;
-            return Value::of_bool(!value.truthy());
+            if (expr->name == "+") {
+                out = value;
+                break;
+            }
+            out = Value::of_bool(!value.truthy());
+            break;
         }
         case Expr::Kind::Binary: {
             const std::string& op = expr->name;
             if (op == "and" || op == "&&" || op == "or" || op == "||") {
                 const bool is_and = op == "and" || op == "&&";
-                const Value left = eval(expr->args.at(0), context);
-                if (is_and ? !left.truthy() : left.truthy()) return Value::of_bool(!is_and);
-                return Value::of_bool(eval(expr->args.at(1), context).truthy());
+                Value left;
+                co_await eval(expr->args.at(0), context, left);
+                if (is_and ? !left.truthy() : left.truthy()) {
+                    out = Value::of_bool(!is_and);
+                    break;
+                }
+                Value right;
+                co_await eval(expr->args.at(1), context, right);
+                out = Value::of_bool(right.truthy());
+                break;
             }
 
-            const Value left = eval(expr->args.at(0), context);
-            const Value right = eval(expr->args.at(1), context);
+            Value left;
+            Value right;
+            co_await eval(expr->args.at(0), context, left);
+            co_await eval(expr->args.at(1), context, right);
 
-            if (op == "==") return Value::of_bool(value_equals(left, right));
-            if (op == "!=") return Value::of_bool(!value_equals(left, right));
+            if (op == "==") {
+                out = Value::of_bool(value_equals(left, right));
+                break;
+            }
+            if (op == "!=") {
+                out = Value::of_bool(!value_equals(left, right));
+                break;
+            }
 
             if (op == "<" || op == "<=" || op == ">" || op == ">=") {
                 const int comparison = compare_values(left, right);
-                if (op == "<") return Value::of_bool(comparison < 0);
-                if (op == "<=") return Value::of_bool(comparison <= 0);
-                if (op == ">") return Value::of_bool(comparison > 0);
-                return Value::of_bool(comparison >= 0);
+                if (op == "<") {
+                    out = Value::of_bool(comparison < 0);
+                } else if (op == "<=") {
+                    out = Value::of_bool(comparison <= 0);
+                } else if (op == ">") {
+                    out = Value::of_bool(comparison > 0);
+                } else {
+                    out = Value::of_bool(comparison >= 0);
+                }
+                break;
             }
 
             if (op == "+" && left.type == Value::Type::Str && right.type == Value::Type::Str) {
-                return Value::of_str(left.text + right.text);
+                out = Value::of_str(left.text + right.text);
+                break;
+            }
+            if (op == "+" && left.is_list() && right.is_list()) {
+                std::vector<Value> joined = left.list_items();
+                for (const Value& item : right.list_items()) joined.push_back(item);
+                out = Value::of_list(std::move(joined));
+                break;
             }
             if (!numeric_like(left) || !numeric_like(right)) {
                 throw RuntimeErrorKeyloom("unsupported operand type(s) for " + op + ": '" +
@@ -1906,7 +2416,8 @@ Value Runtime::eval(const ExprPtr& expr, const EventContext& context) {
             if (op == "/") {
                 const double divisor = right.as_double();
                 if (divisor == 0.0) throw RuntimeErrorKeyloom("Division by zero");
-                return Value::of_float(left.as_double() / divisor);
+                out = Value::of_float(left.as_double() / divisor);
+                break;
             }
             if (op == "%") {
                 if (!want_float) {
@@ -1915,36 +2426,52 @@ Value Runtime::eval(const ExprPtr& expr, const EventContext& context) {
                     const long long value = left.as_int();
                     long long result = value % divisor;
                     if (result != 0 && ((result < 0) != (divisor < 0))) result += divisor;
-                    return Value::of_int(result);
+                    out = Value::of_int(result);
+                    break;
                 }
                 const double divisor = right.as_double();
                 if (divisor == 0.0) throw RuntimeErrorKeyloom("Division by zero");
                 double result = std::fmod(left.as_double(), divisor);
                 if (result != 0.0 && ((result < 0.0) != (divisor < 0.0))) result += divisor;
-                return Value::of_float(result);
+                out = Value::of_float(result);
+                break;
             }
             if (op == "+") {
-                return want_float ? Value::of_float(left.as_double() + right.as_double())
-                                  : Value::of_int(left.as_int() + right.as_int());
+                out = want_float ? Value::of_float(left.as_double() + right.as_double())
+                                 : Value::of_int(left.as_int() + right.as_int());
+                break;
             }
             if (op == "-") {
-                return want_float ? Value::of_float(left.as_double() - right.as_double())
-                                  : Value::of_int(left.as_int() - right.as_int());
+                out = want_float ? Value::of_float(left.as_double() - right.as_double())
+                                 : Value::of_int(left.as_int() - right.as_int());
+                break;
             }
             if (op == "*") {
-                return want_float ? Value::of_float(left.as_double() * right.as_double())
-                                  : Value::of_int(left.as_int() * right.as_int());
+                out = want_float ? Value::of_float(left.as_double() * right.as_double())
+                                 : Value::of_int(left.as_int() * right.as_int());
+                break;
             }
             throw RuntimeErrorKeyloom("unsupported operator " + py_repr_string(op));
         }
         case Expr::Kind::Call: {
             std::vector<Value> args;
             args.reserve(expr->args.size());
-            for (const auto& argument : expr->args) args.push_back(eval(argument, context));
-            return call_function(expr->name, std::move(args), context);
+            for (const auto& argument : expr->args) {
+                Value value;
+                co_await eval(argument, context, value);
+                args.push_back(std::move(value));
+            }
+            const auto user_function = functions_.find(expr->name);
+            if (user_function != functions_.end()) {
+                Value result;
+                co_await call_user_function(*user_function->second, std::move(args), context, result);
+                out = std::move(result);
+                break;
+            }
+            out = call_function(expr->name, std::move(args), context);
+            break;
         }
     }
-    throw RuntimeErrorKeyloom("Invalid expression node");
 }
 
 void Runtime::hold_button(const std::string& owner, const std::string& button) {

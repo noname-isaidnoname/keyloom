@@ -2,7 +2,7 @@
 
 Keyloom is a Linux-first desktop automation language. A `.loom` file is parsed, statically checked, and run by a native C++20 runtime built on one epoll-based event loop (`src/scheduler.cpp`). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`; output goes through `ydotool`/`ydotoold` or a direct `uinput` device written with plain `input_event` structures. The language never evaluates code or shell strings. `launch` is opt-in and uses an argv vector with no shell.
 
-This repo is the C++ port. The original Python implementation lives at `/home/fesuoy/Desktop/Stuff/Python/keyloom` and is the behavioral reference; the two should produce identical diagnostics and runtime behavior **unless** the C++ port has improvements/features over the original.
+This repo is the C++ port. The original Python implementation lives at `/home/fesuoy/Desktop/Stuff/Python/keyloom` and **was** the behavioral reference (not touched for a while; consider the python version deprecated); the C++ port has improvements/features over the original, so you no longer need to produce identical diagnostics and runtime behavior.
 
 User docs: `README.md`. Language reference: `keyloom --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 
@@ -41,7 +41,7 @@ This machine is Arch-based with KDE Plasma on Wayland — **do not assume the se
 make                                     # configure, build (Release) and run the test suite
 make build                               # build Release only, no test suite
 make install                             # install into PREFIX (default /usr/local)
-make package                             # Arch: build keyloom-0.2.0-1-x86_64.pkg.tar.zst via makepkg
+make package                             # Arch: build keyloom-0.3.0-1-x86_64.pkg.tar.zst via makepkg
 make clean                               # delete the build directory
 
 # Or with CMake directly
@@ -142,6 +142,13 @@ Load it with `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript FI
   - **Minor** (`X.Y+1.0`): backward-compatible features, new language statements/built-ins/options, new CLI flags, or meaningful user-visible improvements.
   - **Major** (`X+1.0.0`): breaking changes to script syntax/semantics, CLI behavior, runtime behavior that existing scripts rely on, or other incompatible changes.
 - When in doubt, prefer the smaller bump that accurately reflects compatibility impact, and mention the version bump in the change summary.
+
+## Committing
+
+- Commit your changes once you have written and verified them. Do not leave a finished change sitting uncommitted in the working tree for the next agent to trip over.
+- Verify before you commit: run `make` (build plus the full test suite) and, when the change touches the language, `keyloom --check` on every script in `examples/`. Commit only what passes.
+- Keep the commit focused: one logical change per commit, with a message that says what changed and why. Reference the version bump in the message when the change ships user-visible behavior.
+- Update `README.md`, `src/docs.cpp` (`kGuide` and `api_reference()`), and the version files in the same commit as the code they describe, so the repository is never in a state where the docs disagree with the build.
 
 ## Gotchas
 - Avoid using subagents. because when they finish giving the report/summary of the task they were given, you don't know the context of places they searched, so you're better off just directly reading/grepping files.

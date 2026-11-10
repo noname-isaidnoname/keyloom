@@ -36,7 +36,7 @@ Syntax rules
 
 * A file contains one `loom "name" { ... }` block.
 * Top-level declarations are `option name = value`, `remap key SOURCE to TARGET`,
-  `gui "title" { ... }`, and `when ... { ... }`.
+  `gui "title" { ... }`, `func NAME(params) { ... }`, and `when ... { ... }`.
 * Blocks use braces. Each action occupies one line; comments begin with #.
 * Strings use single or double quotes. Escape sequences include \\, \n, \t.
 * Durations: 25ms, 0.5s, 2m, 1h. A bare number in a duration position means seconds.
@@ -56,6 +56,19 @@ Event triggers
     when app starts { ... }            # one time at runtime start
     when gui BUTTON clicked { ... }    # persistent panel button
     when gui window closes { ... }     # handle a panel close
+
+Chord bindings
+--------------
+
+    when key CTRL+ALT+T goes down { ... }
+
+The last key of the chord is the primary key; every key before it must be
+physically held when the primary key goes down. The binding fires only while
+the modifiers are down, and its `goes up` edge runs when the primary key is
+released. Use the full chord to address the binding:
+`call set_hotkey_enabled("CTRL+ALT+T", false)`. Modifier names are canonical
+key names, so `CTRL` means the left control key; write `RIGHTCTRL` for the
+right one. `event_key` inside a chord handler is the primary key.
 
 Persistent GUI panels
 ---------------------
@@ -152,8 +165,10 @@ Actions
     set count = 3
     if count > 1 {
         log "many"
-    } else {
+    } else if count == 1 {
         log "one"
+    } else {
+        log "none"
     }
     repeat count {
         log "again"
@@ -161,7 +176,63 @@ Actions
     while count > 0 {
         set count = count - 1
     }
+    for i = 1 to 10 {
+        log str(i)
+    }
     assert count == 0
+
+Loops
+-----
+
+    for i = 1 to 10 { ... }         # 1, 2, ... 10 (both ends included)
+    for i = 10 downto 1 { ... }     # 10, 9, ... 1
+    for i = 1 to 20 step 2 { ... }  # 1, 3, 5, ...
+    for item in items { ... }       # every element of a list
+    break                          # leave the loop
+    continue                       # skip to the next iteration
+
+The loop variable is an ordinary variable and keeps its value after the loop.
+`break` and `continue` work in `for`, `repeat`, and `while` loops. Every loop
+is capped at 10,000 iterations.
+
+Lists
+-----
+
+    set items = ["alpha", "beta"]
+    set empty = []
+    set first = items[0]           # negative indexes count from the end
+    set last = items[-1]
+    set more = items + ["gamma"]   # a new list
+    set count = len(items)
+
+A list holds strings, numbers, booleans or other lists. Lists are mutable:
+`call append(items, "gamma")` adds an element in place, and `call sort(items)`
+sorts it. Two lists are equal when they hold the same elements in the same
+order.
+
+Functions
+---------
+
+    func double(x) {
+        return x * 2
+    }
+    func greet(name, greeting) {
+        log greeting + ", " + name
+        return name
+    }
+
+    when app starts {
+        set value = double(21)    # 42
+        set name = greet("world", "hello")
+    }
+
+A function is declared at the top level of the `loom` block. It returns through
+`return`, which may carry a value; `return` without a value returns nothing.
+A function has its own scope: the parameters and every variable it assigns
+stay inside the call and disappear when it returns. It can read the script's
+variables, but it cannot change them, so return a value instead of setting a
+script variable. A function may call itself, but the call depth is capped at
+32. A function name may not shadow a built-in function.
 
 Expressions and built-in functions
 ----------------------------------
@@ -180,6 +251,18 @@ gui_value(id), gui_set_text(id, text), gui_set_visible(title, boolean). The
 screen_width/screen_height variables are also available without parentheses.
 Use `call gui_alert("done")` and `call set_hotkey_enabled("F8", false)` when the
 function only performs an action and produces no useful value.
+
+String functions: upper(text), lower(text), trim(text),
+starts_with(text, prefix), ends_with(text, suffix), contains(text, needle),
+replace(text, from, to), substr(text, start), substr(text, start, length),
+index_of(text, needle). Positions and lengths count characters, not bytes.
+
+List functions: len(list), join(list, separator), split(text, separator),
+append(list, value), sort(list), contains(list, value). `append` and `sort`
+change the list in place and return it.
+
+The checker rejects a call to a function that does not exist, so a typo is
+reported by `keyloom --check` instead of failing at runtime.
 
 Options
 -------
@@ -288,6 +371,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
     static const std::vector<std::pair<std::string, std::vector<std::string>>> table = {
         {"events",
          {"when key NAME goes down", "when key NAME goes up", "when key NAME stays held every DURATION",
+          "when key CHORD goes down", "when key CHORD goes up",
           "when mouse BUTTON goes down", "when mouse BUTTON goes up",
           "when mouse BUTTON stays held every DURATION", "when timer every DURATION", "when app starts",
           "when gui BUTTON clicked", "when gui window closes"}},
@@ -314,8 +398,18 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
          {"scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR",
           "launch EXPR (allow_launch=true required)"}},
         {"flow",
-         {"set NAME = EXPR", "if EXPR { ... } else { ... }", "repeat EXPR { ... }",
-          "while EXPR { ... }", "wait DURATION", "assert EXPR", "log EXPR"}},
+         {"set NAME = EXPR", "if EXPR { ... } else if EXPR { ... } else { ... }", "repeat EXPR { ... }",
+          "while EXPR { ... }", "for NAME = START to END { ... }", "for NAME = START downto END { ... }",
+          "for NAME = START to END step STEP { ... }", "for NAME in LIST { ... }",
+          "break", "continue", "wait DURATION", "assert EXPR", "log EXPR",
+          "func NAME(PARAMS) { ... }", "return EXPR"}},
+        {"lists",
+         {"[VALUE, ...]", "LIST[INDEX]", "len(LIST)", "join(LIST, SEPARATOR)", "split(TEXT, SEPARATOR)",
+          "append(LIST, VALUE)", "sort(LIST)", "contains(LIST, VALUE)"}},
+        {"strings",
+         {"upper(TEXT)", "lower(TEXT)", "trim(TEXT)", "starts_with(TEXT, PREFIX)", "ends_with(TEXT, SUFFIX)",
+          "contains(TEXT, NEEDLE)", "replace(TEXT, FROM, TO)", "substr(TEXT, START)", "substr(TEXT, START, LENGTH)",
+          "index_of(TEXT, NEEDLE)"}},
         {"functions",
          {"min", "max", "abs", "round", "floor", "ceil", "sqrt", "clamp", "int", "float", "str",
           "bool", "len", "random", "randint", "elapsed", "key_down", "mouse_held", "screen_width",

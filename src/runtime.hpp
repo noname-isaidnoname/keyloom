@@ -84,9 +84,14 @@ private:
         std::string event_kind;
         std::string key;
         std::string edge;
+        /// The identifier of the binding that is running. A chord keeps all of
+        /// its keys, so this is "LEFTCTRL+LEFTALT+T" for CTRL+ALT+T.
+        std::string hotkey_id;
     };
 
     static constexpr long long kMaxLoop = 10000;
+    /// How deep user-defined functions may call each other.
+    static constexpr int kMaxCallDepth = 32;
 
     bool hotkey_enabled(const Node& event) const;
 
@@ -118,8 +123,20 @@ private:
     Task timer_loop(const Node& event, double interval);
     Task signal_loop(int fd, std::shared_ptr<void> signal_owner);
 
-    Value eval(const ExprPtr& expr, const EventContext& context);
+    /// Evaluate an expression into `out`. Evaluation is a coroutine because a
+    /// user-defined function may wait, so the result cannot travel back
+    /// through the return value.
+    Task eval(const ExprPtr& expr, const EventContext& context, Value& out);
     Value call_function(const std::string& name, std::vector<Value> args, const EventContext& context);
+    Task call_user_function(const Function& function, std::vector<Value> args, const EventContext& context,
+                            Value& out);
+    bool chord_modifiers_held(const Node& event) const;
+
+    /// Read a variable, preferring the innermost function scope.
+    bool lookup_variable(const std::string& name, Value& out) const;
+    /// Write a variable into the innermost function scope, or into the script
+    /// scope when no function is running.
+    void assign_variable(const std::string& name, Value value);
     std::map<std::string, std::string> active_window_info() const;
     void gui_alert(const std::string& message, const std::string& title);
     std::string gui_input(const std::string& prompt, const std::string& default_value, const std::string& title);
@@ -152,6 +169,12 @@ private:
     std::set<std::string> disabled_hotkeys_;
     std::set<std::string> suspended_exempt_hotkeys_;
     std::map<std::string, std::vector<const Node*>> active_hotkey_ups_;
+    std::map<std::string, const Function*> functions_;
+    /// One scope per running function call. A function reads the script's
+    /// variables but keeps its own assignments to itself.
+    std::vector<std::map<std::string, Value>> function_scopes_;
+    int loop_depth_ = 0;
+    int function_depth_ = 0;
     std::vector<std::unique_ptr<GuiHost>> gui_hosts_;
     std::vector<Task::handle_type> background_;
     std::string panic_key_;

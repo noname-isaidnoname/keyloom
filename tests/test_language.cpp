@@ -5,7 +5,9 @@
 #include <string>
 #include <vector>
 
+#include "builtins.hpp"
 #include "checker.hpp"
+#include "docs.hpp"
 #include "lexer.hpp"
 #include "parser.hpp"
 #include "value.hpp"
@@ -451,4 +453,250 @@ TEST_CASE(formats_python_style_values) {
     CHECK_EQ(Value::of_bool(true).to_string(), std::string("True"));
     CHECK_EQ(py_repr_string("a'b"), std::string("\"a'b\""));
     CHECK_EQ(py_repr_string("a\nb"), std::string("'a\\nb'"));
+}
+
+TEST_CASE(parses_list_literals_and_subscripts) {
+    const Script script = parse(R"LOOM(
+loom "lists" {
+    when app starts {
+        set items = ["alpha", "beta"]
+        set empty = []
+        set first = items[0]
+        set last = items[-1]
+    }
+}
+)LOOM");
+    const std::vector<Node>& body = script.events.at(0).body;
+    CHECK_EQ(body.at(0).kind_name(), std::string("set"));
+    CHECK_TRUE(body.at(0).exprs.at(0)->kind == Expr::Kind::List);
+    CHECK_EQ(body.at(0).exprs.at(0)->args.size(), static_cast<size_t>(2));
+    CHECK_EQ(body.at(1).exprs.at(0)->args.size(), static_cast<size_t>(0));
+    CHECK_TRUE(body.at(2).exprs.at(0)->kind == Expr::Kind::Index);
+    CHECK_TRUE(body.at(3).exprs.at(0)->kind == Expr::Kind::Index);
+}
+
+TEST_CASE(parses_for_loops_and_loop_control) {
+    const Script script = parse(R"LOOM(
+loom "loops" {
+    when app starts {
+        for i = 1 to 10 {
+            log i
+        }
+        for i = 10 downto 1 step 2 {
+            log i
+        }
+        for item in ["a", "b"] {
+            log item
+            break
+            continue
+        }
+    }
+}
+)LOOM");
+    const std::vector<Node>& body = script.events.at(0).body;
+    CHECK_EQ(body.at(0).kind_name(), std::string("for"));
+    CHECK_EQ(body.at(0).a, std::string("i"));
+    CHECK_EQ(body.at(0).b, std::string("to"));
+    CHECK_EQ(body.at(0).exprs.size(), static_cast<size_t>(2));
+    CHECK_EQ(body.at(1).b, std::string("downto"));
+    CHECK_EQ(body.at(1).exprs.size(), static_cast<size_t>(3));
+    CHECK_EQ(body.at(2).b, std::string("in"));
+    CHECK_EQ(body.at(2).exprs.size(), static_cast<size_t>(1));
+    CHECK_EQ(body.at(2).body.at(1).kind_name(), std::string("break"));
+    CHECK_EQ(body.at(2).body.at(2).kind_name(), std::string("continue"));
+}
+
+TEST_CASE(parses_user_defined_functions) {
+    const Script script = parse(R"LOOM(
+loom "functions" {
+    func double(x) {
+        return x * 2
+    }
+    func greet(name, greeting) {
+        log greeting + name
+        return name
+    }
+    when app starts {
+        set value = double(21)
+    }
+}
+)LOOM");
+    CHECK_EQ(script.functions.size(), static_cast<size_t>(2));
+    CHECK_EQ(script.functions.at(0).name, std::string("double"));
+    CHECK_EQ(script.functions.at(0).params.size(), static_cast<size_t>(1));
+    CHECK_EQ(script.functions.at(0).body.at(0).kind_name(), std::string("return"));
+    CHECK_EQ(script.functions.at(1).params.size(), static_cast<size_t>(2));
+}
+
+TEST_CASE(parses_else_if_chains) {
+    const Script script = parse(R"LOOM(
+loom "chain" {
+    when app starts {
+        if false {
+            log "a"
+        } else if true {
+            log "b"
+        } else {
+            log "c"
+        }
+    }
+}
+)LOOM");
+    const Node& node = script.events.at(0).body.at(0);
+    CHECK_EQ(node.otherwise.size(), static_cast<size_t>(1));
+    CHECK_EQ(node.otherwise.at(0).kind_name(), std::string("if"));
+    CHECK_TRUE(node.otherwise.at(0).body.at(0).exprs.at(0)->kind == Expr::Kind::Literal);
+}
+
+TEST_CASE(parses_chord_key_events) {
+    const Script script = parse(R"LOOM(
+loom "chords" {
+    when key CTRL+ALT+T goes down {
+        log "chord"
+    }
+    when key F8 goes down {
+        log "plain"
+    }
+}
+)LOOM");
+    const Node& chord = script.events.at(0);
+    CHECK_EQ(chord.event_key, std::string("T"));
+    CHECK_EQ(chord.chord_parts.size(), static_cast<size_t>(3));
+    CHECK_EQ(chord.chord_parts.at(0), std::string("CTRL"));
+    CHECK_EQ(chord.chord_parts.at(2), std::string("T"));
+    CHECK_TRUE(script.events.at(1).chord_parts.empty());
+}
+
+TEST_CASE(static_check_rejects_unknown_functions) {
+    const Script script = parse(R"LOOM(
+loom "unknown" {
+    when app starts {
+        set value = no_such_function(1)
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown function 'no_such_function'"));
+}
+
+TEST_CASE(static_check_rejects_wrong_argument_counts) {
+    const Script script = parse(R"LOOM(
+loom "arity" {
+    func double(x) {
+        return x * 2
+    }
+    when app starts {
+        set a = clamp(1, 2)
+        set b = double(1, 2)
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function clamp() takes 3 argument(s), got 2"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function double() takes 1 argument(s), got 2"));
+}
+
+TEST_CASE(static_check_rejects_duplicate_and_shadowing_functions) {
+    const Script script = parse(R"LOOM(
+loom "dupes" {
+    func helper(a) {
+        return a
+    }
+    func helper(b) {
+        return b
+    }
+    func len(x) {
+        return x
+    }
+    when app starts {
+        set value = helper(1)
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function 'helper' is declared more than once"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function 'len' shadows a built-in function"));
+}
+
+TEST_CASE(static_check_rejects_loop_control_outside_a_loop) {
+    const Script script = parse(R"LOOM(
+loom "loose" {
+    when app starts {
+        break
+        continue
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "break is only allowed inside a loop"));
+    CHECK_TRUE(has_message_containing(diagnostics, "continue is only allowed inside a loop"));
+}
+
+TEST_CASE(static_check_rejects_return_outside_a_function) {
+    const Script script = parse(R"LOOM(
+loom "loose" {
+    when app starts {
+        return 1
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(has_error(diagnostics));
+    CHECK_TRUE(has_message_containing(diagnostics, "return is only allowed inside a function"));
+}
+
+TEST_CASE(static_check_accepts_the_new_language_surface) {
+    const Script script = parse(R"LOOM(
+loom "modern" {
+    option panic = "PAUSE"
+    func double(x) {
+        return x * 2
+    }
+    when key CTRL+ALT+T goes down {
+        log upper("chord")
+    }
+    when app starts {
+        set items = ["a", "b"]
+        for item in items {
+            log item
+        }
+        for i = 1 to 3 {
+            if i == 2 {
+                continue
+            }
+            log str(double(i))
+        }
+    }
+}
+)LOOM");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(!has_error(diagnostics));
+}
+
+TEST_CASE(documented_functions_match_the_builtin_table) {
+    std::vector<std::string> all_entries;
+    std::vector<std::string> function_entries;
+    for (const auto& group : api_reference()) {
+        for (const auto& entry : group.second) {
+            all_entries.push_back(entry);
+            if (group.first == "functions") function_entries.push_back(entry);
+        }
+    }
+    for (const auto& function : builtin_functions()) {
+        bool found = false;
+        for (const auto& entry : all_entries) {
+            if (entry == function.name || entry.rfind(function.name + "(", 0) == 0) {
+                found = true;
+                break;
+            }
+        }
+        CHECK_TRUE(found);
+    }
+    for (const auto& entry : function_entries) {
+        CHECK_TRUE(is_builtin_function(entry));
+    }
 }

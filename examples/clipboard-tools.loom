@@ -1,0 +1,61 @@
+# Clipboard tools: split, edit, and join text lines.
+#
+# The panel reads the clipboard, splits it into lines, sorts them, and writes
+# the result back. F8 shows the same work in the log without touching the
+# clipboard.
+loom "clipboard-tools" {
+    option output = "auto"
+    option panic = "PAUSE"
+
+    gui "Clipboard Tools" {
+        label "Separator (blank for a line):"
+        input separator = ""
+        button sort_lines = "Sort lines"
+        button shout = "UPPERCASE"
+        button count = "Count lines"
+    }
+
+    func lines_of(text, separator) {
+        if separator == "" {
+            return split(text, "\n")
+        }
+        return split(text, separator)
+    }
+
+    func describe(items) {
+        set parts = []
+        for item in items {
+            call append(parts, trim(item))
+        }
+        return join(parts, " | ")
+    }
+
+    when gui sort_lines clicked {
+        clip read into text
+        set separator = gui_value("separator")
+        set items = lines_of(text, separator)
+        call sort(items)
+        clip write join(items, "\n")
+        notify "Sorted " + str(len(items)) + " line(s)."
+    }
+
+    when gui shout clicked {
+        clip read into text
+        clip write upper(text)
+        notify "Clipboard is now uppercase."
+    }
+
+    when gui count clicked {
+        clip read into text
+        set separator = gui_value("separator")
+        set items = lines_of(text, separator)
+        notify "The clipboard holds " + str(len(items)) + " line(s)."
+    }
+
+    when key F8 goes down {
+        clip read into text
+        set items = lines_of(text, "")
+        log "lines: " + str(len(items))
+        log describe(items)
+    }
+}

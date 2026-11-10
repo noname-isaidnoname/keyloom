@@ -13,9 +13,10 @@ struct Expr;
 using ExprPtr = std::shared_ptr<Expr>;
 
 /// An expression tree. `Literal` carries a value; `Variable`, `Unary` and
-/// `Binary` carry a name/operator; `Call` carries its function name and args.
+/// `Binary` carry a name/operator; `Call` carries its function name and args;
+/// `List` carries its element expressions; `Index` carries a base and an index.
 struct Expr {
-    enum class Kind { Literal, Variable, Unary, Binary, Call };
+    enum class Kind { Literal, Variable, Unary, Binary, Call, List, Index };
 
     Kind kind = Kind::Literal;
     Value literal;
@@ -41,8 +42,12 @@ enum class StmtKind {
     If,
     Repeat,
     While,
+    For,
+    Break,
+    Continue,
     Assert,
     Call,
+    Return,
     Send,
 };
 
@@ -84,8 +89,11 @@ struct Node {
     bool is_event = false;
 
     // Event fields.
-    std::string event_kind;  // "key" | "mouse" | "timer" | "app"
+    std::string event_kind;  // "key" | "mouse" | "timer" | "app" | "gui"
     std::string event_key;   // upper-case key name, or lower-case mouse button
+    /// Every key of a chord binding such as `CTRL+ALT+T`, modifiers first and
+    /// the primary key last. Empty for a plain single-key binding.
+    std::vector<std::string> chord_parts;
     std::string edge;        // "down" | "up" | "held" | "tick" | "starts"
     double interval = 0.0;
 
@@ -104,6 +112,15 @@ struct Node {
     std::string kind_name() const { return is_event ? "event" : stmt_kind_name(stmt); }
 };
 
+/// A user-defined function. `params` are the parameter names; the body runs
+/// in its own scope and returns through a `return` statement.
+struct Function {
+    std::string name;
+    std::vector<std::string> params;
+    std::vector<Node> body;
+    int line = 1;
+};
+
 struct Script {
     std::string name;
     std::string path = "<memory>";
@@ -111,6 +128,7 @@ struct Script {
     std::vector<Node> events;
     std::vector<Remap> remaps;
     std::vector<GuiPanel> panels;
+    std::vector<Function> functions;
 
     const Value* option(const std::string& key) const {
         for (const auto& entry : options) {

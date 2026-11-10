@@ -66,7 +66,7 @@ keyloom --doctor
 keyloom --version
 ```
 
-- `--check` does static checking only; it does not open input devices or start the runtime.
+- `--check` does static checking only; it does not open input devices or start the runtime. It rejects unknown function names, wrong argument counts, `break` outside a loop, and `return` outside a function.
 - `--run` refuses scripts with checker errors. Use `--dry-run` to log output actions without injecting them (live key listening still needs evdev permissions).
 - Stop a running script with the panic key (**PAUSE** by default) or `Ctrl+C`. Set `option panic = "none"` to disable the panic key (not recommended).
 
@@ -111,6 +111,10 @@ loom "sample" {
 
     remap key F10 to ENTER
 
+    func double(x) {
+        return x * 2
+    }
+
     when key F8 goes down {
         cursor center
         mouse left tap
@@ -119,6 +123,11 @@ loom "sample" {
 
     when key F9 stays held every 100ms {
         log "F9 is still held"
+    }
+
+    when key CTRL+ALT+T goes down {
+        set value = double(21)
+        log "chord: " + str(value)
     }
 
     when mouse left goes down {
@@ -130,16 +139,67 @@ loom "sample" {
 }
 ```
 
-Run `keyloom --docs` for the full guide. Useful topics: `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, `functions`, `ahk`.
+Run `keyloom --docs` for the full guide. Useful topics: `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, `lists`, `strings`, `functions`, `ahk`.
 
 | Area | Highlights |
 |---|---|
-| Events | key/mouse down/up/held, timer, app start |
+| Events | key/mouse down/up/held, chords, timer, app start |
 | Pointer | absolute warp, relative move, glide, center |
 | Mouse | hold/free/tap with independent tokens |
 | Keyboard | press/free/tap chords, `type`, AHK-style `send`, native `remap`, `consume key` |
 | Desktop | scroll, clipboard, notifications, opt-in launch, active-window queries, GUI dialogs/panels |
-| Flow | variables, expressions, if/else, repeat, while, wait, assert, log |
+| Flow | variables, expressions, if/else if, for/repeat/while, break/continue, wait, assert, log |
+| Data | lists with literals, indexing, `split`/`join`/`sort`/`append`, string helpers |
+| Functions | user-defined `func` with parameters and `return` |
+
+### Lists
+
+```loom
+set items = ["alpha", "beta"]
+set first = items[0]          # negative indexes count from the end
+set more = items + ["gamma"]  # a new list
+call append(items, "delta")   # changes the list in place
+set joined = join(items, ", ")
+```
+
+### Loops and functions
+
+```loom
+for i = 1 to 10 {
+    if i == 5 {
+        continue
+    }
+    log str(i)
+}
+
+for item in items {
+    log item
+}
+
+func double(x) {
+    return x * 2
+}
+set value = double(21)   # 42
+```
+
+`break` and `continue` work in `for`, `repeat`, and `while` loops. A `func`
+declaration lives at the top level of the `loom` block. A function has its own
+scope: its parameters and the variables it assigns stay inside the call. It
+can read the script's variables but cannot change them, so return a value
+instead.
+
+### Chord bindings
+
+```loom
+when key CTRL+ALT+T goes down {
+    log "Ctrl+Alt+T"
+}
+```
+
+The last key of the chord is the primary key and the ones before it must be
+physically held when it goes down. Use the whole chord to address the
+binding, for example `call set_hotkey_enabled("CTRL+ALT+T", false)`.
+
 
 ## Runtime setup (evdev + output)
 

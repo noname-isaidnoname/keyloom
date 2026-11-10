@@ -6,6 +6,12 @@ loom "basic-demo" {
     # Native remapping: F10 is withheld and emits Enter instead.
     remap key F10 to ENTER
 
+    # A user-defined function. It returns a value and can be called from any
+    # expression.
+    func double(x) {
+        return x * 2
+    }
+
     when app starts {
         log "Keyloom is ready. F8 prints a message."
     }
@@ -28,6 +34,8 @@ loom "basic-demo" {
         set window = active_window_process()
         if window == "" {
             log "active window query requires xdotool or kdotool"
+        } else if window == "firefox" {
+            log "Firefox is in front"
         } else {
             log "active window: " + window
         }
@@ -35,5 +43,16 @@ loom "basic-demo" {
 
     when key F12 goes down {
         send "Keyloom{enter}"
+    }
+
+    # A for loop over a range, with a list of names.
+    when key F7 goes down {
+        set names = ["alpha", "beta", "gamma"]
+        for name in names {
+            log name + " -> " + str(double(len(name)))
+        }
+        for i = 1 to 3 {
+            log "round " + str(i)
+        }
     }
 }

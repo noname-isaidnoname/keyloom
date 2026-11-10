@@ -1,0 +1,81 @@
+# A pomodoro timer with a small control panel.
+#
+# Start and stop the timer from the panel, and skip a round with the skip
+# button. The timer keeps working while the panel is open.
+loom "pomodoro" {
+    option output = "auto"
+    option panic = "PAUSE"
+
+    gui "Pomodoro" {
+        label "Work minutes:"
+        input work = "25"
+        label "Break minutes:"
+        input rest = "5"
+        button toggle = "Start"
+        button skip = "Skip round"
+    }
+
+    func minutes_of(text, fallback) {
+        if not is_number(text) {
+            return fallback
+        }
+        set value = float(text)
+        if value <= 0 {
+            return fallback
+        }
+        return value
+    }
+
+    when app starts {
+        set running = false
+        set remaining = 0.0
+        set phase = "work"
+        set deadline = 0.0
+    }
+
+    when gui toggle clicked {
+        if running {
+            set running = false
+            call gui_set_text("toggle", "Start")
+            log "Paused with " + str(round(remaining)) + " s left."
+        } else {
+            set work_minutes = minutes_of(gui_value("work"), 25)
+            set rest_minutes = minutes_of(gui_value("rest"), 5)
+            if phase == "work" {
+                set remaining = work_minutes * 60
+            } else {
+                set remaining = rest_minutes * 60
+            }
+            set deadline = elapsed() + remaining
+            set running = true
+            call gui_set_text("toggle", "Pause")
+            log "Started a " + phase + " round of " + str(remaining) + " s."
+        }
+    }
+
+    when gui skip clicked {
+        set running = false
+        set phase = "work"
+        call gui_set_text("toggle", "Start")
+        notify "Round skipped."
+    }
+
+    when timer every 500ms {
+        if running {
+            set remaining = deadline - elapsed()
+            if remaining <= 0 {
+                set remaining = 0
+                set running = false
+                call gui_set_text("toggle", "Start")
+                if phase == "work" {
+                    set phase = "break"
+                    notify "Work round done. Time for a break."
+                } else {
+                    set phase = "work"
+                    notify "Break over. Back to work."
+                }
+                log "Round finished."
+            }
+        }
+    }
+}

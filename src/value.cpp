@@ -31,6 +31,17 @@ std::string strip(const std::string& text) {
     throw RuntimeErrorKeyloom(message);
 }
 
+/// Python's `repr()` of a list, which is also its `str()`.
+std::string list_repr(const std::vector<Value>& values) {
+    std::string out = "[";
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (index > 0) out += ", ";
+        out += values[index].repr();
+    }
+    out += "]";
+    return out;
+}
+
 }  // namespace
 
 Value Value::of_int(long long v) {
@@ -61,6 +72,27 @@ Value Value::of_str(std::string v) {
     return value;
 }
 
+Value Value::of_list(std::vector<Value> values) {
+    Value value;
+    value.type = Type::List;
+    value.items = std::make_shared<std::vector<Value>>(std::move(values));
+    return value;
+}
+
+std::vector<Value>& Value::list_items() {
+    if (type != Type::List || !items) {
+        throw RuntimeErrorKeyloom("expected a list");
+    }
+    return *items;
+}
+
+const std::vector<Value>& Value::list_items() const {
+    if (type != Type::List || !items) {
+        throw RuntimeErrorKeyloom("expected a list");
+    }
+    return *items;
+}
+
 bool Value::truthy() const {
     switch (type) {
         case Type::None: return false;
@@ -68,6 +100,7 @@ bool Value::truthy() const {
         case Type::Float: return real != 0.0;
         case Type::Bool: return boolean;
         case Type::Str: return !text.empty();
+        case Type::List: return items && !items->empty();
     }
     return false;
 }
@@ -100,6 +133,8 @@ long long Value::as_int() const {
             }
             return parsed;
         }
+        case Type::List:
+            throw_value_error(std::string(kInvalidInt) + ": cannot convert list to integer");
     }
     return 0;
 }
@@ -123,6 +158,8 @@ double Value::as_double() const {
             }
             return parsed;
         }
+        case Type::List:
+            throw_value_error(std::string(kInvalidFloat) + ": cannot convert list to float");
     }
     return 0.0;
 }
@@ -134,6 +171,7 @@ std::string Value::to_string() const {
         case Type::Float: return py_float_str(real);
         case Type::Bool: return boolean ? "True" : "False";
         case Type::Str: return text;
+        case Type::List: return items ? list_repr(*items) : "[]";
     }
     return "";
 }
@@ -145,11 +183,22 @@ std::string Value::repr() const {
         case Type::Float: return py_float_str(real);
         case Type::Bool: return boolean ? "True" : "False";
         case Type::Str: return py_repr_string(text);
+        case Type::List: return items ? list_repr(*items) : "[]";
     }
     return "";
 }
 
 bool value_equals(const Value& left, const Value& right) {
+    if (left.type == Value::Type::List || right.type == Value::Type::List) {
+        if (left.type != Value::Type::List || right.type != Value::Type::List) return false;
+        const std::vector<Value>& left_items = left.list_items();
+        const std::vector<Value>& right_items = right.list_items();
+        if (left_items.size() != right_items.size()) return false;
+        for (size_t index = 0; index < left_items.size(); ++index) {
+            if (!value_equals(left_items[index], right_items[index])) return false;
+        }
+        return true;
+    }
     const bool left_numeric = left.is_number() || left.type == Value::Type::Bool;
     const bool right_numeric = right.is_number() || right.type == Value::Type::Bool;
     if (left_numeric && right_numeric) {

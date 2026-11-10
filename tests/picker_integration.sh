@@ -17,6 +17,10 @@ EVENT=${KEYLOOM_PICKER_EVENT:-$ROOT/build/release/picker_event}
 LIFECYCLE=${KEYLOOM_PICKER_LIFECYCLE:-$ROOT/build/release/picker_lifecycle}
 UPLOAD_PROBE=${KEYLOOM_PICKER_UPLOAD_PROBE:-$ROOT/build/release/picker_upload_probe}
 D=${PICKER_TEST_DISPLAY:-}
+# The display numbers this run may use, as a comma separated list. The two
+# picker variants get their own range so they can run at the same time.
+DISPLAY_NUMBERS=${PICKER_TEST_DISPLAY_NUMBERS:-91,92,93,94,95}
+DISPLAY_NUMBERS=${DISPLAY_NUMBERS//,/ }
 SERVER_PID=
 SERVER_KIND=
 PIXEL_DIR=
@@ -52,9 +56,9 @@ start_server() {
     else
         return 1
     fi
-    for _ in $(seq 1 50); do
+    for _ in $(seq 1 200); do
         if DISPLAY=$display xdotool getmouselocation >/dev/null 2>&1; then return 0; fi
-        sleep 0.1
+        sleep 0.02
     done
     return 1
 }
@@ -81,7 +85,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z $D ]]; then
-    for number in 91 92 93 94 95; do
+    for number in $DISPLAY_NUMBERS; do
         if [[ ! -e "/tmp/.X11-unix/X$number" ]]; then
             D=:$number
             start_server "$D" && break
@@ -105,11 +109,11 @@ run_picker() {
     DISPLAY=$D PATH=${PICKER_PATH:-$PATH} "$BIN" --get-mouse-pos >"$out" 2>"$err" &
     pid=$!
     OVERLAY=
-    for _ in $(seq 1 150); do
+    for _ in $(seq 1 500); do
         kill -0 "$pid" 2>/dev/null || break
-        OVERLAY=$(DISPLAY=$D xdotool search --name "^$TITLE$" 2>/dev/null | head -1)
+        OVERLAY=$(DISPLAY=$D xdotool search --onlyvisible --name "^$TITLE$" 2>/dev/null | head -1)
         [[ -n $OVERLAY ]] && break
-        sleep 0.1
+        sleep 0.02
     done
     if [[ -z $OVERLAY ]]; then
         if kill -0 "$pid" 2>/dev/null; then
@@ -125,12 +129,18 @@ run_picker() {
         fi
         fail "picker died before the overlay was usable (rc=$rc); this is the XSetInputFocus race"
     fi
-    # Give the event loop a moment to select its input masks.
-    sleep 1
-    eval "$action"
-    for _ in $(seq 1 100); do
+    # The picker selects its input masks and takes the input focus once the
+    # overlay is viewable. Waiting for the focus to land on the overlay is the
+    # real readiness signal; a fixed sleep only approximates it.
+    for _ in $(seq 1 500); do
+        [[ $(DISPLAY=$D xdotool getwindowfocus 2>/dev/null) == "$OVERLAY" ]] && break
         kill -0 "$pid" 2>/dev/null || break
-        sleep 0.05
+        sleep 0.02
+    done
+    eval "$action"
+    for _ in $(seq 1 200); do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.02
     done
     if kill -0 "$pid" 2>/dev/null; then
         kill -9 "$pid" 2>/dev/null
@@ -223,10 +233,10 @@ if [[ -n $SERVER_PID ]]; then
     exec 3<>"$UPLOAD_DIR/control"
     DISPLAY=$D "$UPLOAD_PROBE" disconnect <"$UPLOAD_DIR/control" >"$UPLOAD_DIR/out" 2>"$UPLOAD_DIR/err" &
     UPLOAD_PID=$!
-    for _ in $(seq 1 150); do
+    for _ in $(seq 1 500); do
         grep -q '^uploading$' "$UPLOAD_DIR/out" && break
         kill -0 "$UPLOAD_PID" 2>/dev/null || { cat "$UPLOAD_DIR/err" >&2; fail 'upload probe exited early'; }
-        sleep 0.1
+        sleep 0.02
     done
     grep -q '^uploading$' "$UPLOAD_DIR/out" || fail 'upload probe did not reach checked request'
     kill -KILL "$SERVER_PID"

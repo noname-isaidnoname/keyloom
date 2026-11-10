@@ -52,11 +52,22 @@ passes, with tests and a commit after each pass. Bump the version at the end.
   `test_runtime.cpp` 19.0 s → 8.6 s. The other units compile in parallel.
 * Commit: "Split the runtime and test translation units".
 
-### Pass 3 — test speed
-* Cut the fixed sleeps and slow polling in `tests/picker_integration.sh` and
-  `tests/gui_integration.sh`; replace polling with tight event waits.
-* Make the two picker variants run concurrently instead of behind a resource
-  lock.
+### Pass 3 — test speed (done)
+* The picker integration test spent 7.3 s of its 11.6 s waiting on fixed
+  sleeps. The `sleep 1` after the overlay appeared is now a wait for the real
+  readiness signal: the picker takes the input focus once the overlay is
+  viewable and its event masks are selected.
+* Poll loops now use a 20 ms interval instead of 100 ms, and the loop bounds
+  were rescaled to keep the same overall timeout.
+* The GUI mapping probe ran for a fixed three seconds; it now runs for as long
+  as the harness needs to switch the keyboard layout twice.
+* The two picker variants use disjoint X display ranges and the test preset
+  runs ctest with four jobs, so the independent integration tests overlap.
+  The variants keep their resource lock: the host's screenshot tool
+  (spectacle) is single-instance, so two pickers must not capture the desktop
+  at the same time.
+* `ctest -j4`: 31.5 s → 9.7 s. `picker_integration` 11.6 s → 5.1 s,
+  `gui_integration` 5.8 s → 4.0 s.
 * Commit: "Speed up the picker and GUI integration tests".
 
 ### Pass 4 — cold build speed

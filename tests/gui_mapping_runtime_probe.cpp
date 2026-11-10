@@ -21,9 +21,10 @@ int main() {
     }
     host->set_visible(true);
 
-    // Run for ~3 seconds, processing events. The harness changes layout during
-    // this window to trigger XCB_MAPPING_NOTIFY; GuiHost must refresh keysyms.
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    // Run while the harness changes the keyboard layout, processing events.
+    // The harness switches the layout twice and waits for this probe, so the
+    // probe only has to outlive those changes, not a fixed generous window.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
     while (std::chrono::steady_clock::now() < deadline) {
         host->process_events();
         if (host->is_closed()) {

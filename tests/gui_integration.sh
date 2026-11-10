@@ -135,7 +135,9 @@ grep -q 'Auto-presser stopped' "$DIR/out"
 grep -q '\[dry-run\] key SPACE free' "$DIR/out"
 kill -0 "$app"
 count=$(grep -c '\[dry-run\] key SPACE press' "$DIR/out")
-sleep 1.2
+# The auto-presser interval is at least 60s, so a short window is enough to
+# show that no press is left pending after the stop.
+sleep 0.6
 [[ $(grep -c '\[dry-run\] key SPACE press' "$DIR/out") == "$count" ]]
 click_widget toggle
 for _ in $(seq 1 50); do

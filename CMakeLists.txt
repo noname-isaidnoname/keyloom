@@ -131,12 +131,17 @@ if(BUILD_TESTING)
     target_link_libraries(uinput_fault_probe PRIVATE keyloom_core)
     add_library(keyloom_uinput_ioctl_fault_shim SHARED tests/uinput_ioctl_fault_shim.c)
     target_link_libraries(keyloom_uinput_ioctl_fault_shim PRIVATE ${CMAKE_DL_LIBS})
+    # The two picker variants use disjoint display ranges, so they do not fight
+    # over an X server. They still share the host's screenshot tool, and
+    # spectacle is single-instance, so only one picker may capture the desktop
+    # at a time: the resource lock keeps the two variants apart.
     add_test(NAME picker_integration
         COMMAND ${CMAKE_COMMAND} -E env
             KEYLOOM_BIN=$<TARGET_FILE:keyloom>
             KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
             KEYLOOM_PICKER_LIFECYCLE=$<TARGET_FILE:picker_lifecycle>
             KEYLOOM_PICKER_UPLOAD_PROBE=$<TARGET_FILE:picker_upload_probe>
+            PICKER_TEST_DISPLAY_NUMBERS=91,92,93,94,95
             bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
     set_tests_properties(picker_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK picker_display)
     find_program(KEYLOOM_XVFB Xvfb)
@@ -148,6 +153,7 @@ if(BUILD_TESTING)
                 KEYLOOM_PICKER_LIFECYCLE=$<TARGET_FILE:picker_lifecycle>
                 KEYLOOM_PICKER_UPLOAD_PROBE=$<TARGET_FILE:picker_upload_probe>
                 PICKER_TEST_DEPTH=16
+                PICKER_TEST_DISPLAY_NUMBERS=81,82,83,84,85
                 bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
         set_tests_properties(picker_integration_16 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK picker_display)
     endif()

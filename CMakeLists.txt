@@ -92,6 +92,13 @@ add_executable(keyloom src/main.cpp)
 target_link_libraries(keyloom PRIVATE keyloom_core)
 
 if(BUILD_TESTING)
+    # The test harness and the probes are not performance critical: the code
+    # they exercise lives in keyloom_core, which keeps the release optimisation
+    # level. Building the harness itself at -O1 takes a noticeable slice off a
+    # cold build without changing the behaviour under test.
+    add_library(keyloom_test_options INTERFACE)
+    target_compile_options(keyloom_test_options INTERFACE -O1)
+
     add_executable(keyloom_tests
         tests/test_main.cpp
         tests/test_language.cpp
@@ -100,35 +107,35 @@ if(BUILD_TESTING)
         tests/test_backends.cpp
         tests/test_mousepos.cpp
         tests/test_scheduler.cpp)
-    target_link_libraries(keyloom_tests PRIVATE keyloom_core)
+    target_link_libraries(keyloom_tests PRIVATE keyloom_core keyloom_test_options)
     target_compile_definitions(keyloom_tests PRIVATE KEYLOOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME keyloom_tests COMMAND keyloom_tests)
 
     add_executable(evdev_handoff tests/evdev_handoff.cpp)
-    target_link_libraries(evdev_handoff PRIVATE keyloom_core)
+    target_link_libraries(evdev_handoff PRIVATE keyloom_core keyloom_test_options)
     add_test(NAME evdev_handoff COMMAND evdev_handoff)
     set_tests_properties(evdev_handoff PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 15)
 
     # The picker needs a real X server; the shell test starts a private one and
     # skips (77) when none is available.
     add_executable(picker_event tests/picker_event.cpp)
-    target_link_libraries(picker_event PRIVATE PkgConfig::X11)
+    target_link_libraries(picker_event PRIVATE PkgConfig::X11 keyloom_test_options)
     add_executable(picker_lifecycle tests/picker_lifecycle.cpp)
-    target_link_libraries(picker_lifecycle PRIVATE keyloom_core)
+    target_link_libraries(picker_lifecycle PRIVATE keyloom_core keyloom_test_options)
     add_executable(picker_upload_probe tests/picker_upload_probe.cpp)
-    target_link_libraries(picker_upload_probe PRIVATE keyloom_core)
+    target_link_libraries(picker_upload_probe PRIVATE keyloom_core keyloom_test_options)
     add_executable(gui_lifetime tests/gui_lifetime.cpp)
-    target_link_libraries(gui_lifetime PRIVATE keyloom_core)
+    target_link_libraries(gui_lifetime PRIVATE keyloom_core keyloom_test_options)
     add_executable(gui_mapping_runtime_probe tests/gui_mapping_runtime_probe.cpp)
-    target_link_libraries(gui_mapping_runtime_probe PRIVATE keyloom_core)
+    target_link_libraries(gui_mapping_runtime_probe PRIVATE keyloom_core keyloom_test_options)
     add_executable(gui_startup_probe tests/gui_startup_probe.cpp)
-    target_link_libraries(gui_startup_probe PRIVATE keyloom_core)
+    target_link_libraries(gui_startup_probe PRIVATE keyloom_core keyloom_test_options)
     # A probe for a recoverable alternative to Xlib's fatal I/O behavior.
     add_executable(xcb_disconnect_probe tests/xcb_disconnect_probe.cpp)
-    target_link_libraries(xcb_disconnect_probe PRIVATE keyloom_core)
+    target_link_libraries(xcb_disconnect_probe PRIVATE keyloom_core keyloom_test_options)
     # Real /dev/uinput ioctl fault injection (LD_PRELOAD shim + probe).
     add_executable(uinput_fault_probe tests/uinput_fault_probe.cpp)
-    target_link_libraries(uinput_fault_probe PRIVATE keyloom_core)
+    target_link_libraries(uinput_fault_probe PRIVATE keyloom_core keyloom_test_options)
     add_library(keyloom_uinput_ioctl_fault_shim SHARED tests/uinput_ioctl_fault_shim.c)
     target_link_libraries(keyloom_uinput_ioctl_fault_shim PRIVATE ${CMAKE_DL_LIBS})
     # The two picker variants use disjoint display ranges, so they do not fight

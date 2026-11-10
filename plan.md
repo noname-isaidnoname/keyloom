@@ -70,10 +70,27 @@ passes, with tests and a commit after each pass. Bump the version at the end.
   `gui_integration` 5.8 s → 4.0 s.
 * Commit: "Speed up the picker and GUI integration tests".
 
-### Pass 4 — cold build speed
-* Unity build for the small core sources, precompiled header if it pays off,
-  `-O2` where `-O3` only costs build time, ccache/mold already in place.
-* Measure a cold build before/after and record the numbers.
+### Pass 4 — cold build speed (done)
+* Measured the cold build (empty ccache, `-j4`, Release):
+  69 s → 48 s after the split in pass 2 → **43 s**.
+* The build is CPU bound: 195 s of compile edges over four cores, and the
+  schedule is already at its lower bound (195/4 = 48.8 s ≈ the measured
+  wall time). Linking is 0.2 s in total, and ccache only adds ~3 s on a cold
+  cache.
+* The test harness and the probes are built at `-O1`. The code they exercise
+  lives in `keyloom_core`, which keeps the release optimisation level, so the
+  behaviour under test does not change.
+* Measured and rejected:
+  * *Unity build*: the sources use anonymous namespaces for their file-local
+    helpers, so the merged units redefine `atom()`, `is_space()` and
+    `lower_ascii()`. Fixing that would mean renaming helpers across the tree
+    for a small gain.
+  * *Precompiled header*: only 4 % faster and the dependency tracking was not
+    reliable — an object did not change when a header inside the PCH did.
+    A stale build is much worse than a slow one.
+  * *`-O2` instead of `-O3`*: 22.6 s versus 22.8 s over the heaviest units,
+    and `-O3` even produced slightly smaller objects.
+  * *`CCACHE_RUN_SECOND_CPP=false`*: no gain (50 s versus 49 s).
 * Commit: "Speed up cold builds".
 
 ### Pass 5 — wrap up

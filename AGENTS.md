@@ -16,6 +16,10 @@ The current session is **real**: running on Wayland (with Xwayland), on KDE Plas
 | `src/parser.cpp`, `src/ast.hpp` | `loom` block, options, `when` events, statements, expressions |
 | `src/checker.cpp` | option values, key names, hold-token balance, `/dev/uinput` warnings |
 | `src/runtime.cpp`, `src/runtime.hpp` | event loop glue, key tracking, dispatch, flow, expressions, hold refcounts |
+| `src/runtime_input.cpp` | device setup, evdev event decoding, passthrough replay, remaps |
+| `src/runtime_output.cpp` | key and text output, mouse and key holds, clipboard, notifications, launching |
+| `src/runtime_gui.cpp` | GUI panels and dialogs, active window queries |
+| `src/runtime_internal.hpp` | text helpers shared by the runtime's translation units |
 | `src/scheduler.cpp`, `src/scheduler.hpp` | epoll event loop, task/timer/co-routine plumbing, `Task`, `Scheduler` |
 | `src/backends.cpp`, `src/backends.hpp` | `OutputBackend` interface, ydotoold, uinput, dry run, backend selection |
 | `src/uinput.cpp`, `src/uinput.hpp` | `UInputDevice`: creates the virtual device, batched `input_event` writes |
@@ -41,7 +45,7 @@ This machine is Arch-based with KDE Plasma on Wayland — **do not assume the se
 make                                     # configure, build (Release) and run the test suite
 make build                               # build Release only, no test suite
 make install                             # install into PREFIX (default /usr/local)
-make package                             # Arch: build keyloom-0.3.0-1-x86_64.pkg.tar.zst via makepkg
+make package                             # Arch: build keyloom-0.4.0-1-x86_64.pkg.tar.zst via makepkg
 make clean                               # delete the build directory
 
 # Or with CMake directly
@@ -97,6 +101,7 @@ Load it with `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript FI
 - Held timers live in `held_tasks_`, keyed by `(key, line)`, favour a fixed cadence: each `stays held every` tick is scheduled from the previous deadline, not from when the handler returned, and overruns skip whole ticks instead of bursting (see `Runtime::held_loop`). Held tasks are cancelled on key-up and device disconnect.
 - Cancellation must wake the frame that is actually suspended. A task sitting in `co_await child()` cannot be resumed directly: its resume point is the await expression, so resuming it destroys the child frame while the grandchild chain is still running, and the grandchild later returns into freed memory. `Task::promise_type` tracks `parent`/`child`; `Scheduler::cancel` marks the whole chain and resumes its deepest frame so each awaiter unwinds with `TaskCancelled`.
 - Dispatch runs as tasks spawned onto the scheduler (`Runtime::spawn_background`). `event_key`/`event_edge` are carried in an `EventContext` struct passed through `execute()`, not globals or TLS.
+- A finished frame hands its awaiter back to the scheduler (`Scheduler::defer_resume`) instead of resuming it inline. Resuming inline would nest one native frame per await, and a script that awaits once per loop iteration would overflow the stack. Only the scheduler's own loop may resume a frame, so `Scheduler::resume_frame` is the single place a frame runs; `Scheduler::drain_deferred` resumes the frames that were handed back.
 - `repeat` and `while` cap at `kMaxLoop = 10000`. A panic key or Ctrl+C sets the stop event; the CLI runs the scheduler and rethrows `runtime.failure()` after the loop ends.
 - `Runtime` releases every held button and key and closes the backend on teardown (`~Runtime`/`release_all_holds`). Keep `close()` defensive and idempotent.
 - `cursor glide` starts from Keyloom's last known cursor position, or the screen center. It does not query the real pointer.

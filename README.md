@@ -252,7 +252,19 @@ cmake --build build/release
 ctest --preset release
 ```
 
-Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`. Output drivers implement `OutputBackend` (`src/backends.hpp`); devices/timers/dispatch run on one epoll scheduler (`src/scheduler.cpp`).
+The `sanitize` preset builds the whole project with the address and undefined
+behaviour sanitizers and runs the suite under them:
+
+```bash
+cmake --preset sanitize
+cmake --build build/sanitize
+ctest --preset sanitize
+```
+
+Release builds enable `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3` and
+`-fPIE`; turn them off with `-DKEYLOOM_HARDEN=OFF`.
+
+Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`. The runtime is split by concern into `src/runtime.cpp` (statements and expressions), `src/runtime_input.cpp` (devices), `src/runtime_output.cpp` (output and holds) and `src/runtime_gui.cpp` (panels). Output drivers implement `OutputBackend` (`src/backends.hpp`); devices/timers/dispatch run on one epoll scheduler (`src/scheduler.cpp`).
 
 ## Contributing
 

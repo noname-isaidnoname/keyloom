@@ -264,14 +264,14 @@ ctest --preset sanitize
 Release builds enable `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3` and
 `-fPIE`; turn them off with `-DKEYLOOM_HARDEN=OFF`.
 
-Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`. The runtime is split by concern into `src/runtime.cpp` (statements and expressions), `src/runtime_input.cpp` (devices), `src/runtime_output.cpp` (output and holds) and `src/runtime_gui.cpp` (panels). Output drivers implement `OutputBackend` (`src/backends.hpp`); devices/timers/dispatch run on one epoll scheduler (`src/scheduler.cpp`).
+Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`. The runtime is split by concern into `src/runtime.cpp` (statements and expressions), `src/runtime_input.cpp` (devices), `src/runtime_output.cpp` (output and holds) and `src/runtime_gui.cpp` (panels). Output drivers implement `OutputBackend` (`src/backends.hpp`); devices/timers/dispatch run on one epoll scheduler (`src/scheduler.cpp`). See `docs/architecture.md` for the full module map.
 
 ## Contributing
 
 - Keep changes consistent with surrounding style and patterns.
 - Run the full test suite after touching lexer, parser, checker, runtime, scheduler, input, uinput, or backends.
 - When user-visible behavior changes, update `README.md` and `src/docs.cpp` (`keyloom --docs` / `api_reference()`) together.
-- See `AGENTS.md` for repository layout, architecture traps, and agent-specific guidance.
+- See `AGENTS.md` for agent guidance, and `docs/` for architecture, build, testing, benchmark, implementation traps, and contributing documentation.
 
 ## License
 

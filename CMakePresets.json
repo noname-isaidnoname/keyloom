@@ -25,17 +25,41 @@
                 "KEYLOOM_USE_MOLD": "ON",
                 "BUILD_TESTING": "ON"
             }
+        },
+        {
+            "name": "sanitize",
+            "displayName": "Address and undefined behaviour sanitizers (Ninja + ccache)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/sanitize",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                "KEYLOOM_USE_MOLD": "ON",
+                "KEYLOOM_SANITIZE": "ON",
+                "KEYLOOM_HARDEN": "OFF",
+                "BUILD_TESTING": "ON"
+            }
         }
     ],
     "buildPresets": [
         { "name": "release", "configurePreset": "release" },
-        { "name": "debug", "configurePreset": "debug" }
+        { "name": "debug", "configurePreset": "debug" },
+        { "name": "sanitize", "configurePreset": "sanitize" }
     ],
     "testPresets": [
         {
             "name": "release",
             "configurePreset": "release",
             "output": { "outputOnFailure": true }
+        },
+        {
+            "name": "sanitize",
+            "configurePreset": "sanitize",
+            "output": { "outputOnFailure": true },
+            "environment": {
+                "ASAN_OPTIONS": "detect_leaks=1:strict_string_checks=1",
+                "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1"
+            }
         }
     ]
 }

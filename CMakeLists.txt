@@ -12,6 +12,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 option(KEYLOOM_USE_MOLD "Link with mold when the linker is installed" ON)
+option(KEYLOOM_SANITIZE "Build with the address and undefined behaviour sanitizers" OFF)
+option(KEYLOOM_HARDEN "Enable the usual release hardening flags" ON)
 
 # ccache: honour an explicit -DCMAKE_CXX_COMPILER_LAUNCHER, otherwise use ccache
 # when it exists. CMakePresets.json sets the same thing for preset builds.
@@ -40,6 +42,24 @@ pkg_check_modules(LIBPNG REQUIRED IMPORTED_TARGET libpng)
 add_library(keyloom_options INTERFACE)
 target_compile_options(keyloom_options INTERFACE
     -Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual)
+
+if(KEYLOOM_HARDEN AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(keyloom_options INTERFACE
+        -fstack-protector-strong
+        -fPIE)
+    target_compile_definitions(keyloom_options INTERFACE _FORTIFY_SOURCE=3)
+    target_link_options(keyloom_options INTERFACE -pie)
+endif()
+
+if(KEYLOOM_SANITIZE AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # The sanitizers replace the allocator, so the hardening flags that rely on
+    # the libc's own checks are pointless here.
+    target_compile_options(keyloom_options INTERFACE
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=undefined)
+    target_link_options(keyloom_options INTERFACE -fsanitize=address,undefined)
+endif()
 
 add_library(keyloom_core STATIC
     src/value.cpp

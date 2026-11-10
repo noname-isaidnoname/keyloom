@@ -23,11 +23,25 @@ class Scheduler;
 /// hands control to its caller instead and is destroyed by the awaiter.
 struct Task {
     struct promise_type {
+        /// The scheduler that spawned this frame. Only spawned frames report
+        /// their completion to it.
         Scheduler* scheduler = nullptr;
+        /// The scheduler that drives this frame. It is set for spawned frames
+        /// and for awaited children. A frame that finishes hands its awaiter
+        /// back through this scheduler rather than resuming it inline, so a chain
+        /// of awaits cannot grow the native stack.
+        Scheduler* driver = nullptr;
         bool cancelled = false;
+        /// Set when a frame that was handed back to the scheduler is cancelled.
+        /// The frame is parked at its await point, so it cannot observe the
+        /// cancellation until the scheduler resumes it again.
+        bool cancel_pending = false;
         bool started = false;
         std::exception_ptr error;
-        std::coroutine_handle<> continuation{};
+        /// The frame that awaits this one. It is handed back to the driver
+        /// instead of resumed inline, so a chain of awaits cannot grow the
+        /// native stack.
+        std::coroutine_handle<promise_type> continuation{};
         /// Coroutine this one is currently `co_await`ing, and the coroutine
         /// awaiting this one. Together they form the live chain that owns the
         /// frames, so cancellation can wake the frame that is actually
@@ -57,10 +71,9 @@ struct Task {
         handle_type handle{};
 
         bool await_ready() const noexcept;
-        std::coroutine_handle<> await_suspend(std::coroutine_handle<> awaiting) noexcept;
+        std::coroutine_handle<promise_type> await_suspend(std::coroutine_handle<promise_type> awaiting) noexcept;
         void await_resume();
     };
-
     Awaiter operator co_await() const noexcept { return Awaiter{handle}; }
 };
 
@@ -112,6 +125,18 @@ public:
     void register_task(handle_type handle);
     void forget_task(handle_type handle);
 
+    /// Hand a frame back to the scheduler so it is resumed from the
+    /// scheduler's own loop instead of inline from the frame that finished.
+    /// A frame that is resumed inline keeps its caller's stack frame alive, so
+    /// a script that awaits once per loop iteration would grow the native
+    /// stack without bound and eventually overflow it.
+    void defer_resume(handle_type handle);
+
+    /// How many frames were handed back to the scheduler instead of being
+    /// resumed inline. Every completed await goes through this path, so the
+    /// counter shows that continuations are driven from the scheduler's loop.
+    std::size_t deferred_resume_count() const { return deferred_resume_count_; }
+
     void suspend_until(handle_type handle, double seconds);
     int suspend_on_fd(handle_type handle, int fd);
     void release_fd(int fd, handle_type owner);
@@ -122,9 +147,13 @@ public:
 
 private:
     void pump();
+    /// Resume a frame once, without draining the deferred queue.
+    void resume_frame(handle_type handle);
     void resume(handle_type handle);
     void remove_waits(handle_type handle);
     void remove_dependencies(handle_type handle);
+    /// Resume every frame that was handed back while the current one ran.
+    void drain_deferred();
 
     struct Timer {
         double deadline = 0.0;
@@ -149,6 +178,8 @@ private:
     std::map<handle_type, std::set<handle_type, HandleLess>, HandleLess> shutdown_dependencies_;
     std::set<handle_type, HandleLess> known_;
     handle_type active_root_{};
+    std::deque<handle_type> deferred_;
+    std::size_t deferred_resume_count_ = 0;
     std::vector<handle_type> stop_waiters_;
     std::vector<handle_type> drain_waiters_;
     int epoll_fd_ = -1;

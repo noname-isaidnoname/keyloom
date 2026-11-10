@@ -4,7 +4,9 @@
 
 #include <unistd.h>
 #include <cerrno>
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 using namespace keyloom;
 
@@ -183,7 +185,7 @@ Task duplicate_pipe_wait(int fd, bool& rejected) {
 Task signal_pipe(int fd, Task::handle_type first) {
     co_await sleep_for(0.01);
     const char byte = 'x';
-    (void)::write(fd, &byte, 1);
+    if (::write(fd, &byte, 1) != 1) co_return;
     // Avoid hanging the test if the first registration was lost.
     co_await sleep_for(0.05);
     Scheduler::current().cancel(first);
@@ -344,4 +346,47 @@ TEST_CASE(fatal_epoll_error_destroys_tasks_and_is_reported) {
     CHECK_TRUE(order == std::vector<int>({2, 1}));
     CHECK_EQ(scheduler.live_count(), static_cast<size_t>(0));
     CHECK_THROWS(Scheduler::current(), RuntimeErrorKeyloom);
+}
+
+namespace {
+
+// The address of the native frame that runs the coroutine body. A coroutine
+// frame itself lives on the heap, but the code that resumes it runs on the
+// native stack, so this is the only way to observe how deep that stack got.
+std::uintptr_t g_lowest_frame = 0;
+std::uintptr_t g_highest_frame = 0;
+
+void note_frame_address() {
+    const auto address = reinterpret_cast<std::uintptr_t>(__builtin_frame_address(0));
+    if (g_lowest_frame == 0 || address < g_lowest_frame) g_lowest_frame = address;
+    if (address > g_highest_frame) g_highest_frame = address;
+}
+
+Task trivial_child() { co_return; }
+
+Task awaiting_loop(int iterations) {
+    for (int i = 0; i < iterations; ++i) {
+        note_frame_address();
+        co_await trivial_child();
+    }
+    note_frame_address();
+}
+
+}  // namespace
+
+TEST_CASE(repeated_awaits_do_not_grow_the_native_stack) {
+    g_lowest_frame = 0;
+    g_highest_frame = 0;
+    Scheduler scheduler;
+    scheduler.spawn(awaiting_loop(5000));
+    scheduler.run_ready();
+    // Every completed await has to go through the scheduler's own loop. If a
+    // continuation were resumed inline instead, the native stack would grow by
+    // one frame per iteration and a long script would overflow it.
+    CHECK_TRUE(scheduler.deferred_resume_count() >= 5000);
+    // The drift between the highest and the lowest observed frame address is
+    // the stack the loop consumed.
+    const auto drift = g_highest_frame - g_lowest_frame;
+    CHECK_TRUE(g_lowest_frame != 0);
+    CHECK_TRUE(drift < 64 * 1024);
 }

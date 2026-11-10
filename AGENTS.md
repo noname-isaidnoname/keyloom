@@ -6,6 +6,8 @@ This repo is the C++ port. The original Python implementation lives at `/home/fe
 
 User docs: `README.md`. Language reference: `keyloom --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 
+The current session is **real**: running on Wayland (with Xwayland), on KDE Plasma, CachyOS (arch-based).
+
 ## Layout
 
 | path | owns |
@@ -27,7 +29,7 @@ User docs: `README.md`. Language reference: `keyloom --docs` (`src/docs.cpp`). E
 | `examples/two_spots.loom` | A/D hold regression script used by tests |
 | `tests/*.cpp` | parser, checker, runtime, scheduler, picker and CLI tests (`tests/harness.hpp` mini test runner) |
 | `Makefile` | thin one-word targets (`make`, `make test`, `make install`, `make package`) |
-| `packaging/arch/PKGBUILD` | Arch package built from a local checkout; `check()` runs the test suite |
+| `packaging/arch/PKGBUILD` | Arch package built from a local checkout; `check()` runs the test suite only with `KEYLOOM_BUILD_TESTS=ON` |
 
 ## Environment and install
 
@@ -46,7 +48,7 @@ make clean                               # delete the build directory
 cmake --preset release && cmake --build build/release
 ```
 
-`scripts/install.sh` checks for cmake/ninja/pkg-config and the x11/libpng dev packages, and refuses a non-writable default prefix with a `PREFIX="$HOME/.local"` hint. It never runs sudo. `packaging/arch/PKGBUILD` builds the package from a local checkout (no network) and runs the test suite in `check()`; `make install` and the package both honour the `cmake` install layout (`GNUInstallDirs`, binary into `CMAKE_INSTALL_BINDIR`).
+`scripts/install.sh` checks for cmake/ninja/pkg-config and the x11/libpng dev packages, and refuses a non-writable default prefix with a `PREFIX="$HOME/.local"` hint. It never runs sudo. `packaging/arch/PKGBUILD` builds the package from a local checkout (no network) and does not build or run the test suite unless `KEYLOOM_BUILD_TESTS=ON` is passed to makepkg; `make install` and the package both honour the `cmake` install layout (`GNUInstallDirs`, binary into `CMAKE_INSTALL_BINDIR`).
 
 Live input needs read access to `/dev/input/event*` (`input` group or a udev rule). Pointer motion and scroll need write access to `/dev/uinput`. Buttons, keys, and text via ydotoold need the daemon running.
 
@@ -130,6 +132,16 @@ Load it with `qdbus org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript FI
 - Update `README.md`, `src/docs.cpp` (both `kGuide` and `api_reference()`) together when user-visible behavior changes.
 - Build is warning-clean on `-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual`; keep it that way.
 - Use `rg` for searching. Keep new code covered by a focused test in `tests/`.
+
+## Versioning
+
+- Bump the app version in `CMakeLists.txt` (`project(keyloom VERSION X.Y.Z ...)`) — this is the source of truth and defines `KEYLOOM_VERSION`.
+- Keep `packaging/arch/PKGBUILD` in sync (`pkgver=X.Y.Z`). Update the example package filename in this file's install section if you change it.
+- Choose the bump based on the scope of the change:
+  - **Patch** (`X.Y.Z+1`): bug fixes, small internal changes, docs/test-only changes that ship with a release, or narrowly scoped behavior fixes with no new user-facing surface.
+  - **Minor** (`X.Y+1.0`): backward-compatible features, new language statements/built-ins/options, new CLI flags, or meaningful user-visible improvements.
+  - **Major** (`X+1.0.0`): breaking changes to script syntax/semantics, CLI behavior, runtime behavior that existing scripts rely on, or other incompatible changes.
+- When in doubt, prefer the smaller bump that accurately reflects compatibility impact, and mention the version bump in the change summary.
 
 ## Gotchas
 - Avoid using subagents. because when they finish giving the report/summary of the task they were given, you don't know the context of places they searched, so you're better off just directly reading/grepping files.

@@ -364,7 +364,9 @@ void UInputBackend::close() {
 PassthroughDevice::PassthroughDevice(const DeviceCapabilities& capabilities, VirtualInputFactory factory)
     : device_(factory ? factory("Keyloom passthrough", "keyloom/passthrough", capabilities)
                       : create_uinput_from_capabilities("Keyloom passthrough", "keyloom/passthrough",
-                                                        capabilities)) {}
+                                                        capabilities)) {
+    if (!device_) throw BackendError("passthrough device factory returned no device");
+}
 
 PassthroughDevice::~PassthroughDevice() { close(); }
 
@@ -389,24 +391,22 @@ void PassthroughDevice::write_event(int type, int code, int value) {
 
 void PassthroughDevice::close() {
     if (!device_) return;
+    std::exception_ptr failure;
+    const auto remember = [&failure](auto operation) {
+        try { operation(); } catch (...) { if (!failure) failure = std::current_exception(); }
+    };
     for (int code : down_keys_) {
-        try {
-            device_->write(EV_KEY, code, 0);
-        } catch (const std::exception&) {
-        }
+        remember([&] { device_->write(EV_KEY, code, 0); });
     }
     down_keys_.clear();
     pending_releases_.clear();
-    try {
+    remember([&] {
         device_->write(EV_SYN, SYN_REPORT, 0);
         device_->flush();
-    } catch (const std::exception&) {
-    }
-    try {
-        device_->close();
-    } catch (const std::exception&) {
-    }
+    });
+    remember([&] { device_->close(); });
     device_.reset();
+    if (failure) std::rethrow_exception(failure);
 }
 
 std::unique_ptr<OutputBackend> choose_backend(const std::string& name, int width, int height) {

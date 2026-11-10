@@ -116,13 +116,9 @@ std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel) {
     xcb_create_gc(connection, host->gc_, screen->root, XCB_GC_FOREGROUND | XCB_GC_FONT, gc_values);
 
     host->min_keycode_ = setup->min_keycode;
-    const auto count = static_cast<uint8_t>(setup->max_keycode - setup->min_keycode + 1);
-    XcbReply<xcb_get_keyboard_mapping_reply_t> mapping(
-        xcb_get_keyboard_mapping_reply(connection, xcb_get_keyboard_mapping(connection, setup->min_keycode, count), nullptr), &std::free);
-    if (!mapping) throw RuntimeErrorKeyloom("GUI could not query X11 keyboard mapping.");
-    host->keysyms_per_keycode_ = mapping->keysyms_per_keycode;
-    const auto* syms = xcb_get_keyboard_mapping_keysyms(mapping.get());
-    host->keysyms_.assign(syms, syms + xcb_get_keyboard_mapping_keysyms_length(mapping.get()));
+    host->refresh_keyboard_mapping();
+    if (host->keysyms_.empty() || host->keysyms_per_keycode_ <= 0)
+        throw RuntimeErrorKeyloom("GUI could not query X11 keyboard mapping.");
 
     host->layout();
     host->create_window();
@@ -133,6 +129,27 @@ std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel) {
 }
 
 int GuiHost::fd() const { return connection_ ? connection_->fd() : -1; }
+
+void GuiHost::refresh_keyboard_mapping() {
+    if (!connection_ || connection_->error() != 0) return;
+    auto* connection = connection_->get();
+    auto screens = xcb_setup_roots_iterator(xcb_get_setup(connection));
+    for (int i = 0; i < connection_->screen_number(); ++i) xcb_screen_next(&screens);
+    // Use setup min/max to cover the full range; MappingNotify can affect any keycode.
+    const auto* setup = xcb_get_setup(connection);
+    min_keycode_ = setup->min_keycode;
+    const auto count = static_cast<uint8_t>(setup->max_keycode - setup->min_keycode + 1);
+    XcbReply<xcb_get_keyboard_mapping_reply_t> mapping(
+        xcb_get_keyboard_mapping_reply(connection, xcb_get_keyboard_mapping(connection, setup->min_keycode, count), nullptr), &std::free);
+    if (!mapping) {
+        keysyms_.clear();
+        keysyms_per_keycode_ = 0;
+        return;
+    }
+    keysyms_per_keycode_ = mapping->keysyms_per_keycode;
+    const auto* syms = xcb_get_keyboard_mapping_keysyms(mapping.get());
+    keysyms_.assign(syms, syms + xcb_get_keyboard_mapping_keysyms_length(mapping.get()));
+}
 
 void GuiHost::layout() {
     int widest_label = 0, widest_input = 0, widest_button = 0;
@@ -184,7 +201,6 @@ void GuiHost::create_window() {
     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window_, net_wm_state_, XCB_ATOM_ATOM, 32, 1, &net_wm_state_above_);
     xcb_map_window(connection, window_);
     xcb_flush(connection);
-    mapped_ = true;
 }
 
 int GuiHost::widget_index_by_id(const std::string& id) const {
@@ -266,11 +282,17 @@ void GuiHost::process_events() {
         while (auto* raw = xcb_poll_for_event(connection)) {
             XcbReply<xcb_generic_event_t> event(raw, &std::free);
             const uint8_t type = event->response_type & 0x7f;
+            if (type == XCB_MAPPING_NOTIFY) {
+                const auto* mapping = reinterpret_cast<xcb_mapping_notify_event_t*>(event.get());
+                if (mapping->request == XCB_MAPPING_KEYBOARD || mapping->request == XCB_MAPPING_MODIFIER) {
+                    refresh_keyboard_mapping();
+                }
+                continue;
+            }
             if (type == XCB_EXPOSE) { dirty = true; continue; }
-            if (type == XCB_MAP_NOTIFY) { mapped_ = true; continue; }
-            if (type == XCB_UNMAP_NOTIFY) { mapped_ = false; continue; }
+            if (type == XCB_MAP_NOTIFY || type == XCB_UNMAP_NOTIFY) continue;
             if (type == XCB_DESTROY_NOTIFY && reinterpret_cast<xcb_destroy_notify_event_t*>(event.get())->window == window_) {
-                window_ = 0; mapped_ = false; closed_ = true;
+                window_ = 0; closed_ = true;
                 events.push_back({EventKind::Close, panel_.title, "window"});
                 break;
             }
@@ -318,7 +340,7 @@ void GuiHost::process_events() {
                 if (message->type == wm_protocols_ && message->data.data32[0] == wm_delete_window_) {
                     xcb_destroy_window(connection, window_);
                     xcb_flush(connection);
-                    window_ = 0; mapped_ = false; closed_ = true;
+                    window_ = 0; closed_ = true;
                     events.push_back({EventKind::Close, panel_.title, "window"});
                     break;
                 }
@@ -326,7 +348,7 @@ void GuiHost::process_events() {
         }
         if (!closed_ && connection_lost_locked()) {
             connection_->close();
-            window_ = 0; mapped_ = false; closed_ = true;
+            window_ = 0; closed_ = true;
             events.push_back({EventKind::Close, panel_.title, "window"});
         }
         if (dirty) draw_locked();
@@ -343,7 +365,7 @@ void GuiHost::close() {
         xcb_destroy_window(connection_->get(), window_);
         xcb_flush(connection_->get());
     }
-    window_ = 0; mapped_ = false; closed_ = true;
+    window_ = 0; closed_ = true;
 }
 
 bool GuiHost::has_widget(const std::string& id) const {
@@ -377,7 +399,6 @@ void GuiHost::set_visible(bool visible) {
     if (!connection_ || closed_ || connection_lost_locked()) return;
     if (visible) xcb_map_window(connection_->get(), window_);
     else xcb_unmap_window(connection_->get(), window_);
-    mapped_ = visible;
     xcb_flush(connection_->get());
 }
 

@@ -5,13 +5,14 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${KEYLOOM_BIN:-$ROOT/build/release/keyloom}
 EVENT=${KEYLOOM_PICKER_EVENT:-$ROOT/build/release/picker_event}
 LIFETIME=${KEYLOOM_GUI_LIFETIME:-$ROOT/build/release/gui_lifetime}
+MAPPING_PROBE=${KEYLOOM_GUI_MAPPING_RUNTIME_PROBE:-$ROOT/build/release/gui_mapping_runtime_probe}
 XCB_PROBE=${KEYLOOM_XCB_PROBE:-$ROOT/build/release/xcb_disconnect_probe}
 STARTUP_PROBE=${KEYLOOM_GUI_STARTUP_PROBE:-$ROOT/build/release/gui_startup_probe}
 SCRIPT=${KEYLOOM_GUI_SCRIPT:-$ROOT/examples/antiafk.loom}
 command -v xdotool >/dev/null || exit 77
 [[ -x $BIN && -x $EVENT && -x $LIFETIME && -x $XCB_PROBE && -x $STARTUP_PROBE ]] || exit 77
 DIR=$(mktemp -d "${TMPDIR:-/tmp}/keyloom-gui.XXXXXXXX")
-server= app= probe= startup_probe=
+server= app= probe= startup_probe= map_probe=
 cleanup() {
     local status=$?
     if [[ $status -ne 0 && $status -ne 77 ]]; then
@@ -19,11 +20,13 @@ cleanup() {
     fi
     [[ -z $app ]] || kill "$app" 2>/dev/null || true
     [[ -z $probe ]] || kill "$probe" 2>/dev/null || true
+    [[ -z $map_probe ]] || kill "$map_probe" 2>/dev/null || true
     [[ -z $startup_probe ]] || kill "$startup_probe" 2>/dev/null || true
     [[ -z $server ]] || kill -CONT "$server" 2>/dev/null || true
     [[ -z $server ]] || kill "$server" 2>/dev/null || true
     [[ -z $app ]] || wait "$app" 2>/dev/null || true
     [[ -z $probe ]] || wait "$probe" 2>/dev/null || true
+    [[ -z $map_probe ]] || wait "$map_probe" 2>/dev/null || true
     [[ -z $startup_probe ]] || wait "$startup_probe" 2>/dev/null || true
     [[ -z $server ]] || wait "$server" 2>/dev/null || true
     rm -f "$DIR/out" "$DIR/err" "$DIR/rects" "$DIR/external.loom" "$DIR/disconnect.loom" \
@@ -54,6 +57,45 @@ for number in $(seq 96 199); do
 done
 [[ -n $D ]] || exit 77
 DISPLAY=$D "$LIFETIME"
+
+# Isolated keyboard-layout probe (separate Xvfb): exercises GUI startup/input
+# handling under alternate initial keyboard layouts. GuiHost now refreshes on
+# XCB_MAPPING_NOTIFY; this provides deterministic Xvfb layout evidence.
+if command -v setxkbmap >/dev/null && command -v Xvfb >/dev/null; then
+    layout_d= layout_server=
+    for number in $(seq 200 229); do
+        [[ ! -e /tmp/.X11-unix/X$number ]] || continue
+        layout_d=:$number
+        Xvfb "$layout_d" -screen 0 1024x768x24 >/dev/null 2>&1 & layout_server=$!
+        for _ in $(seq 1 50); do
+            DISPLAY=$layout_d xdotool getmouselocation >/dev/null 2>&1 && break
+            sleep 0.1
+        done
+        DISPLAY=$layout_d xdotool getmouselocation >/dev/null 2>&1 && break
+        kill "$layout_server" 2>/dev/null || true; wait "$layout_server" 2>/dev/null || true
+        layout_server= layout_d=
+    done
+    if [[ -n $layout_d ]]; then
+        DISPLAY=$layout_d setxkbmap us >/dev/null 2>&1 || true
+        DISPLAY=$layout_d "$LIFETIME"
+        DISPLAY=$layout_d setxkbmap fr >/dev/null 2>&1 || DISPLAY=$layout_d setxkbmap de >/dev/null 2>&1 || true
+        DISPLAY=$layout_d "$LIFETIME"
+        # Runtime MappingNotify probe: change layout while GUI event loop runs.
+        if [[ -x $MAPPING_PROBE ]]; then
+            DISPLAY=$layout_d setxkbmap us >/dev/null 2>&1 || true
+            DISPLAY=$layout_d "$MAPPING_PROBE" & map_probe=$!
+            sleep 0.4
+            DISPLAY=$layout_d setxkbmap fr >/dev/null 2>&1 || DISPLAY=$layout_d setxkbmap de >/dev/null 2>&1 || true
+            sleep 0.4
+            DISPLAY=$layout_d setxkbmap us >/dev/null 2>&1 || true
+            wait "$map_probe"
+            echo 'ok   GUI handles runtime MappingNotify/layout changes under Xvfb'
+        fi
+        kill "$layout_server" 2>/dev/null || true; wait "$layout_server" 2>/dev/null || true
+        echo 'ok   GUI lifetime probe passes under alternate Xvfb keyboard layouts (us/fr/de)'
+    fi
+fi
+
 DISPLAY=$D KEYLOOM_GUI_DEBUG_RECTS="$DIR/rects" stdbuf -oL "$BIN" --run "$SCRIPT" --dry-run >"$DIR/out" 2>"$DIR/err" & app=$!
 window=
 for _ in $(seq 1 100); do

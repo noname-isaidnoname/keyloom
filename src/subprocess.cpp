@@ -223,13 +223,40 @@ bool spawn_detached(const std::vector<std::string>& argv, std::string& error) {
     for (const auto& argument : argv) raw.push_back(const_cast<char*>(argument.c_str()));
     raw.push_back(nullptr);
 
-    const pid_t pid = ::fork();
-    if (pid < 0) {
+    int status_pipe[2] = {-1, -1};
+    if (::pipe2(status_pipe, O_CLOEXEC) != 0 && ::pipe(status_pipe) != 0) {
         error = std::strerror(errno);
         return false;
     }
-    if (pid == 0) {
+    if ((fcntl(status_pipe[0], F_SETFD, FD_CLOEXEC) < 0) ||
+        (fcntl(status_pipe[1], F_SETFD, FD_CLOEXEC) < 0)) {
+        error = std::strerror(errno);
+        ::close(status_pipe[0]);
+        ::close(status_pipe[1]);
+        return false;
+    }
+
+    const pid_t child = ::fork();
+    if (child < 0) {
+        error = std::strerror(errno);
+        ::close(status_pipe[0]);
+        ::close(status_pipe[1]);
+        return false;
+    }
+    if (child == 0) {
+        ::close(status_pipe[0]);
         ::setsid();
+        const pid_t grandchild = ::fork();
+        if (grandchild < 0) {
+            const int code = errno;
+            [[maybe_unused]] const auto ignored = ::write(status_pipe[1], &code, sizeof(code));
+            _exit(127);
+        }
+        if (grandchild != 0) {
+            // Intermediate child exits immediately so the parent can reap it
+            // without waiting for the detached program.
+            _exit(0);
+        }
         const int devnull = ::open("/dev/null", O_RDWR);
         if (devnull >= 0) {
             ::dup2(devnull, STDIN_FILENO);
@@ -238,13 +265,27 @@ bool spawn_detached(const std::vector<std::string>& argv, std::string& error) {
             if (devnull > STDERR_FILENO) ::close(devnull);
         }
         ::execvp(raw[0], raw.data());
+        const int code = errno;
+        [[maybe_unused]] const auto ignored = ::write(status_pipe[1], &code, sizeof(code));
         _exit(127);
     }
-    // Reap the intermediate child; the grandchild is reparented to init.
+
+    ::close(status_pipe[1]);
     int status = 0;
-    ::waitpid(pid, &status, 0);
-    if (WIFEXITED(status) && WEXITSTATUS(status) == 127) {
-        error = "command not found";
+    while (::waitpid(child, &status, 0) < 0 && errno == EINTR) {
+    }
+
+    int exec_error = 0;
+    const ssize_t count = ::read(status_pipe[0], &exec_error, sizeof(exec_error));
+    ::close(status_pipe[0]);
+
+    if (count == static_cast<ssize_t>(sizeof(exec_error))) {
+        error = std::strerror(exec_error);
+        if (exec_error == ENOENT || exec_error == ENOTDIR) error = "command not found";
+        return false;
+    }
+    if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
+        error = "failed to detach process";
         return false;
     }
     return true;

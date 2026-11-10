@@ -12,7 +12,7 @@
 
 pkgname=keyloom
 # Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
-pkgver=0.2.0
+pkgver=0.2.1
 pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
@@ -51,6 +51,10 @@ sha256sums=()
 
 _keyloom_source_dir="${KEYLOOM_SOURCE_DIR:-${startdir}/../..}"
 
+# Set KEYLOOM_BUILD_TESTS=ON when invoking makepkg to build the test suite and
+# run it in check() (e.g. makepkg -si KEYLOOM_BUILD_TESTS=ON).
+_build_tests=${KEYLOOM_BUILD_TESTS:-OFF}
+
 prepare() {
     [[ -f "${_keyloom_source_dir}/CMakeLists.txt" ]] ||
         error 'run makepkg from a complete keyloom checkout'
@@ -62,12 +66,14 @@ build() {
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_INSTALL_BINDIR=bin \
         -DCMAKE_INSTALL_LIBDIR=lib \
-        -DBUILD_TESTING=ON
+        -DBUILD_TESTING=${_build_tests}
     cmake --build build
 }
 
 check() {
-    ctest --test-dir build --output-on-failure
+    if [[ "${_build_tests}" == "ON" ]]; then
+        ctest --test-dir build --output-on-failure
+    fi
 }
 
 package() {

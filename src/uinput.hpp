@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <sys/types.h>
@@ -40,10 +41,22 @@ public:
 
 /// A /dev/uinput device. Events are buffered and written in one syscall per
 /// report, which is markedly cheaper than one write() per event.
+struct AdoptUInputFd {
+    explicit AdoptUInputFd() = default;
+};
+
+/// Test hook: return true to simulate ioctl failure at `step`, false to simulate
+/// success (skip real ioctl), or nullopt to run the real ioctl.
+using UInputSetupStep = std::function<std::optional<bool>(const char* step)>;
+
 class UInputDevice : public VirtualInput {
 public:
     UInputDevice(const std::string& name, const std::string& phys, const std::vector<int>& keys,
                  const std::vector<int>& relative, const std::vector<AbsAxis>& absolute);
+    /// Adopt an already-open fd and run uinput setup; used for deterministic tests.
+    UInputDevice(AdoptUInputFd, int fd, const std::string& name, const std::string& phys,
+                 const std::vector<int>& keys, const std::vector<int>& relative,
+                 const std::vector<AbsAxis>& absolute, UInputSetupStep step_hook = {});
     ~UInputDevice() override;
 
     UInputDevice(const UInputDevice&) = delete;
@@ -56,6 +69,10 @@ public:
     int fd() const { return fd_; }
 
 private:
+    void setup(int fd, const std::string& name, const std::string& phys, const std::vector<int>& keys,
+               const std::vector<int>& relative, const std::vector<AbsAxis>& absolute,
+               const UInputSetupStep& step_hook = {});
+
     int fd_ = -1;
     std::vector<unsigned char> buffer_;  // packed input_event records
 };

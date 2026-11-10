@@ -34,26 +34,6 @@ void check_device_node() {
     throw BackendError(std::string("Unable to create /dev/uinput device: ") + what + ": " + std::strerror(saved));
 }
 
-void set_key_bits(int fd, const std::vector<int>& keys) {
-    for (int code : keys) {
-        if (::ioctl(fd, UI_SET_KEYBIT, code) < 0) throw_ioctl("UI_SET_KEYBIT");
-    }
-}
-
-void set_abs_axes(int fd, const std::vector<AbsAxis>& axes) {
-    for (const auto& axis : axes) {
-        if (::ioctl(fd, UI_SET_ABSBIT, axis.code) < 0) throw_ioctl("UI_SET_ABSBIT");
-        uinput_abs_setup setup{};
-        setup.code = static_cast<__u16>(axis.code);
-        setup.absinfo.minimum = axis.minimum;
-        setup.absinfo.maximum = axis.maximum;
-        setup.absinfo.fuzz = axis.fuzz;
-        setup.absinfo.flat = axis.flat;
-        setup.absinfo.resolution = axis.resolution;
-        if (::ioctl(fd, UI_ABS_SETUP, &setup) < 0) throw_ioctl("UI_ABS_SETUP");
-    }
-}
-
 /// libinput opens a freshly created uinput device asynchronously. Anything sent
 /// before that is folded into the device's initial state instead of being
 /// delivered: the first `cursor warp` of a script would silently do nothing, and
@@ -79,40 +59,75 @@ void wait_for_reader(int fd) {
 
 }  // namespace
 
+void UInputDevice::setup(int fd, const std::string& name, const std::string& phys,
+                          const std::vector<int>& keys, const std::vector<int>& relative,
+                          const std::vector<AbsAxis>& absolute, const UInputSetupStep& step_hook) {
+    const auto step = [&](const char* label, auto&& action) {
+        if (step_hook) {
+            const auto decision = step_hook(label);
+            if (decision.has_value()) {
+                if (*decision) {
+                    errno = EIO;
+                    throw_ioctl(label);
+                }
+                return;  // simulated success
+            }
+        }
+        if (!action()) throw_ioctl(label);
+    };
+
+    step("UI_SET_EVBIT EV_KEY", [&] { return ::ioctl(fd, UI_SET_EVBIT, EV_KEY) >= 0; });
+    if (!relative.empty()) step("UI_SET_EVBIT EV_REL", [&] { return ::ioctl(fd, UI_SET_EVBIT, EV_REL) >= 0; });
+    if (!absolute.empty()) step("UI_SET_EVBIT EV_ABS", [&] { return ::ioctl(fd, UI_SET_EVBIT, EV_ABS) >= 0; });
+
+    for (int code : keys) step("UI_SET_KEYBIT", [&] { return ::ioctl(fd, UI_SET_KEYBIT, code) >= 0; });
+    for (int code : relative) step("UI_SET_RELBIT", [&] { return ::ioctl(fd, UI_SET_RELBIT, code) >= 0; });
+    for (const auto& axis : absolute) {
+        step("UI_SET_ABSBIT", [&] { return ::ioctl(fd, UI_SET_ABSBIT, axis.code) >= 0; });
+        uinput_abs_setup abs{};
+        abs.code = static_cast<__u16>(axis.code);
+        abs.absinfo.minimum = axis.minimum;
+        abs.absinfo.maximum = axis.maximum;
+        abs.absinfo.fuzz = axis.fuzz;
+        abs.absinfo.flat = axis.flat;
+        abs.absinfo.resolution = axis.resolution;
+        step("UI_ABS_SETUP", [&] { return ::ioctl(fd, UI_ABS_SETUP, &abs) >= 0; });
+    }
+
+    // uinput_setup carries only the name; the physical path goes through
+    // UI_SET_PHYS.
+    if (!phys.empty()) {
+        step("UI_SET_PHYS", [&] { return ::ioctl(fd, UI_SET_PHYS, const_cast<char*>(phys.c_str())) >= 0; });
+    }
+    uinput_setup dev{};
+    std::snprintf(dev.name, sizeof(dev.name), "%s", name.c_str());
+    dev.id.bustype = BUS_USB;
+    dev.id.vendor = 0x4b4c;  // "KL"
+    dev.id.product = 0x0001;
+    dev.id.version = 1;
+    step("UI_DEV_SETUP", [&] { return ::ioctl(fd, UI_DEV_SETUP, &dev) >= 0; });
+    step("UI_DEV_CREATE", [&] { return ::ioctl(fd, UI_DEV_CREATE) >= 0; });
+    if (step_hook) return;  // simulated setup; no real device/reader to wait for
+    wait_for_reader(fd);
+}
+
 UInputDevice::UInputDevice(const std::string& name, const std::string& phys, const std::vector<int>& keys,
                            const std::vector<int>& relative, const std::vector<AbsAxis>& absolute) {
     check_device_node();
 
     UniqueFd fd(::open("/dev/uinput", O_WRONLY | O_NONBLOCK | O_CLOEXEC));
     if (fd.get() < 0) throw_ioctl("open");
-    // Keep ownership local until every setup operation has succeeded.
-    fd_ = fd.get();
+    setup(fd.get(), name, phys, keys, relative, absolute);
+    fd_ = fd.release();
+}
 
-    if (::ioctl(fd_, UI_SET_EVBIT, EV_KEY) < 0) throw_ioctl("UI_SET_EVBIT EV_KEY");
-    if (!relative.empty() && ::ioctl(fd_, UI_SET_EVBIT, EV_REL) < 0) throw_ioctl("UI_SET_EVBIT EV_REL");
-    if (!absolute.empty() && ::ioctl(fd_, UI_SET_EVBIT, EV_ABS) < 0) throw_ioctl("UI_SET_EVBIT EV_ABS");
-
-    set_key_bits(fd_, keys);
-    for (int code : relative) {
-        if (::ioctl(fd_, UI_SET_RELBIT, code) < 0) throw_ioctl("UI_SET_RELBIT");
-    }
-    set_abs_axes(fd_, absolute);
-
-    // uinput_setup carries only the name; the physical path goes through
-    // UI_SET_PHYS.
-    if (!phys.empty()) {
-        if (::ioctl(fd_, UI_SET_PHYS, const_cast<char*>(phys.c_str())) < 0) throw_ioctl("UI_SET_PHYS");
-    }
-    uinput_setup setup{};
-    std::snprintf(setup.name, sizeof(setup.name), "%s", name.c_str());
-    setup.id.bustype = BUS_USB;
-    setup.id.vendor = 0x4b4c;  // "KL"
-    setup.id.product = 0x0001;
-    setup.id.version = 1;
-    if (::ioctl(fd_, UI_DEV_SETUP, &setup) < 0) throw_ioctl("UI_DEV_SETUP");
-    if (::ioctl(fd_, UI_DEV_CREATE) < 0) throw_ioctl("UI_DEV_CREATE");
-    wait_for_reader(fd_);
-    (void)fd.release();
+UInputDevice::UInputDevice(AdoptUInputFd, int fd_raw, const std::string& name, const std::string& phys,
+                           const std::vector<int>& keys, const std::vector<int>& relative,
+                           const std::vector<AbsAxis>& absolute, UInputSetupStep step_hook) {
+    UniqueFd fd(fd_raw);
+    if (fd.get() < 0) throw BackendError("invalid uinput fd");
+    setup(fd.get(), name, phys, keys, relative, absolute, step_hook);
+    fd_ = fd.release();
 }
 
 UInputDevice::~UInputDevice() {

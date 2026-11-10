@@ -2,13 +2,16 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <cstring>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <optional>
 #include <unistd.h>
 #include <vector>
 
 #include "backends.hpp"
 #include "errors.hpp"
+#include "uinput.hpp"
 #include "unique_fd.hpp"
 #include "xcb_connection.hpp"
 
@@ -61,6 +64,71 @@ TEST_CASE(uinput_pointer_capabilities_are_only_pointer_buttons) {
     CHECK_TRUE(contains(keys, BTN_EXTRA));
     CHECK_TRUE(!contains(keys, KEY_A));
     CHECK_TRUE(!contains(keys, BTN_TOOL_PEN));
+}
+
+TEST_CASE(uinput_setup_failure_closes_adopted_fd) {
+    int fds[2];
+    CHECK_EQ(::pipe(fds), 0);
+    ::close(fds[1]);
+    const int adopted = fds[0];
+    CHECK_THROWS(UInputDevice(AdoptUInputFd(), adopted, "test", "test", {KEY_A}, {}, {}), BackendError);
+    errno = 0;
+    CHECK_EQ(::fcntl(adopted, F_GETFD), -1);
+    CHECK_EQ(errno, EBADF);
+}
+
+namespace {
+
+void check_uinput_step_failure(const char* target, bool use_relative = false, bool use_absolute = false,
+                               bool use_phys = false) {
+    int fds[2];
+    CHECK_EQ(::pipe(fds), 0);
+    ::close(fds[1]);
+    const int adopted = fds[0];
+    std::string seen;
+    UInputSetupStep hook = [&](const char* step) -> std::optional<bool> {
+        if (std::strcmp(step, target) == 0) { seen = step; return true; }
+        return false;  // force success so setup reaches the target on a non-uinput fd
+    };
+    std::vector<int> rel = use_relative ? std::vector<int>{REL_X} : std::vector<int>{};
+    std::vector<AbsAxis> abs = use_absolute ? std::vector<AbsAxis>{{ABS_X, 0, 1919, 0, 0, 0}} : std::vector<AbsAxis>{};
+    std::string phys = use_phys ? "test/phys" : "";
+    try {
+        UInputDevice(AdoptUInputFd(), adopted, "test", phys, {KEY_A}, rel, abs, hook);
+        CHECK_TRUE(false);
+    } catch (const BackendError& error) {
+        CHECK_EQ(seen, std::string(target));
+        CHECK_TRUE(std::string(error.what()).find(target) != std::string::npos);
+    }
+    errno = 0;
+    CHECK_EQ(::fcntl(adopted, F_GETFD), -1);
+    CHECK_EQ(errno, EBADF);
+}
+
+}  // namespace
+
+TEST_CASE(uinput_setup_step_injection_closes_fd_and_reports_step) {
+    check_uinput_step_failure("UI_SET_EVBIT EV_KEY");
+    check_uinput_step_failure("UI_SET_KEYBIT");
+    check_uinput_step_failure("UI_SET_EVBIT EV_REL", true);
+    check_uinput_step_failure("UI_SET_RELBIT", true);
+    check_uinput_step_failure("UI_SET_EVBIT EV_ABS", false, true);
+    check_uinput_step_failure("UI_SET_ABSBIT", false, true);
+    check_uinput_step_failure("UI_ABS_SETUP", false, true);
+    check_uinput_step_failure("UI_SET_PHYS", false, false, true);
+    check_uinput_step_failure("UI_DEV_SETUP");
+    check_uinput_step_failure("UI_DEV_CREATE");
+}
+
+TEST_CASE(real_uinput_device_happy_path_transitions_when_writable) {
+    if (::access("/dev/uinput", W_OK) != 0) return;  // environment-dependent
+    UInputDevice device("Keyloom test", "keyloom/test/real-uinput-smoke", {KEY_F24}, {}, {});
+    device.write(EV_KEY, KEY_F24, 1);
+    device.write(EV_SYN, SYN_REPORT, 0);
+    device.write(EV_KEY, KEY_F24, 0);
+    device.write(EV_SYN, SYN_REPORT, 0);
+    device.flush();
+    device.close();
 }
 
 TEST_CASE(uinput_flush_reports_failure_and_retains_only_unwritten_bytes) {

@@ -59,6 +59,7 @@ private:
 
     explicit GuiHost(const GuiPanel& panel);
 
+    void refresh_keyboard_mapping();
     void layout();
     void draw_locked();
     void create_window();
@@ -96,7 +97,6 @@ private:
     int height_ = 0;
     int focused_input_ = -1;
     bool closed_ = false;
-    bool mapped_ = false;
     std::vector<Rect> rects_;
     std::vector<std::string> texts_;
     std::function<void(const Event&)> event_handler_;

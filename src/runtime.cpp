@@ -198,14 +198,18 @@ size_t utf8_length(const std::string& text) {
 struct ButtonRelease {
     Runtime* runtime;
     std::string owner;
-    ~ButtonRelease() { runtime->free_button(owner); }
+    ~ButtonRelease() {
+        try { runtime->free_button(owner); } catch (...) {}
+    }
 };
 
 struct KeyRelease {
     Runtime* runtime;
     std::vector<std::string> names;
     ~KeyRelease() {
-        for (auto it = names.rbegin(); it != names.rend(); ++it) runtime->free_key(*it);
+        for (auto it = names.rbegin(); it != names.rend(); ++it) {
+            try { runtime->free_key(*it); } catch (...) {}
+        }
     }
 };
 
@@ -347,9 +351,9 @@ std::pair<int, int> parse_screen_option(const Value* value, std::pair<int, int> 
 bool Runtime::hotkey_enabled(const Node& event) const {
     if (event.event_kind != "key" && event.event_kind != "mouse") return true;
     const std::string id = hotkey_id_for_event(event);
-    if (disabled_hotkeys_.find(id) != disabled_hotkeys_.end()) return event.edge == "up";
+    if (disabled_hotkeys_.find(id) != disabled_hotkeys_.end()) return false;
     if (suspended_hotkeys_ && suspended_exempt_hotkeys_.find(id) == suspended_exempt_hotkeys_.end()) {
-        return event.edge == "up";
+        return false;
     }
     return true;
 }
@@ -683,18 +687,26 @@ Task Runtime::read_device(InputDevice* device, std::shared_ptr<PassthroughDevice
         std::string path;
 
         ~Guard() {
-            try {
+            std::exception_ptr failure;
+            const auto remember = [&failure](auto operation) {
+                try { operation(); } catch (...) { if (!failure) failure = std::current_exception(); }
+            };
+            remember([&] {
                 release_input_capture(passthrough, [this] { device->ungrab(); }, [this] { device->close(); });
-                if (!runtime->scheduler_.stop_requested()) {
-                    runtime->disconnect_device(path);
+            });
+            if (!runtime->scheduler_.stop_requested()) {
+                remember([&] { runtime->disconnect_device(path); });
+            }
+            if (failure) {
+                try {
+                    std::rethrow_exception(failure);
+                } catch (const std::exception& error) {
+                    runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": " + error.what();
+                    runtime->say(runtime->runtime_error_);
+                } catch (...) {
+                    runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": unknown error";
+                    runtime->say(runtime->runtime_error_);
                 }
-            } catch (const std::exception& error) {
-                runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": " + error.what();
-                runtime->say(runtime->runtime_error_);
-                runtime->scheduler_.request_stop();
-            } catch (...) {
-                runtime->runtime_error_ = "input disconnect cleanup failed for " + path + ": unknown error";
-                runtime->say(runtime->runtime_error_);
                 runtime->scheduler_.request_stop();
             }
             runtime->device_down_.erase(path);
@@ -729,9 +741,28 @@ Task Runtime::read_device(InputDevice* device, std::shared_ptr<PassthroughDevice
 
 Task Runtime::gui_loop(GuiHost* host) {
     while (host != nullptr && !host->is_closed() && !scheduler_.stop_requested()) {
-        host->process_events();
+        try {
+            host->process_events();
+        } catch (const std::exception& error) {
+            runtime_error_ = std::string("GUI event handling failed: ") + error.what();
+            say(runtime_error_);
+            scheduler_.request_stop();
+            co_return;
+        }
         if (host->is_closed() || scheduler_.stop_requested()) break;
-        co_await readable(host->fd());
+        const int fd = host->fd();
+        if (fd < 0) break;
+        try {
+            co_await readable(fd);
+        } catch (const TaskCancelled&) {
+            throw;
+        } catch (const std::exception& error) {
+            if (host->is_closed() || scheduler_.stop_requested()) break;
+            runtime_error_ = std::string("GUI connection failed: ") + error.what();
+            say(runtime_error_);
+            scheduler_.request_stop();
+            break;
+        }
     }
 }
 
@@ -750,7 +781,6 @@ void Runtime::dispatch_gui_event(const GuiHost::Event& event) {
 
 void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sink, const std::string& path,
                              const std::function<std::vector<int>()>& snapshot) {
-    bool discard_batch_keys = false;
     for (const auto& event : events) {
         if (event.type == EV_SYN && event.code == SYN_DROPPED) {
             desynchronized_devices_.insert(path);
@@ -774,19 +804,18 @@ void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sin
                 desynchronized_devices_.erase(path);
                 process_events(changes, sink, path, snapshot);
                 if (scheduler_.stop_requested()) return;
-                // EVIOCGKEY flushes queued EV_KEY events in the kernel, but
-                // cannot flush events already copied into this read batch.
-                // Those all predate the snapshot and must not be replayed.
-                discard_batch_keys = true;
+                // EVIOCGKEY flushes queued EV_KEY events in the kernel, but cannot
+                // flush events already copied into this read batch. All remaining
+                // events in the batch predate the snapshot and must not be replayed
+                // or processed, including non-key events.
+                break;
             } catch (const std::exception& error) {
                 runtime_error_ = "input resynchronization failed for " + path + ": " + error.what();
                 say(runtime_error_);
                 scheduler_.request_stop();
                 return;
             }
-            continue;
         }
-        if (discard_batch_keys && event.type == EV_KEY) continue;
         if (sink != nullptr && !is_consumed_key_event(event.type, event.code)) {
             try {
                 sink->write_event(event.type, event.code, event.value);
@@ -807,7 +836,15 @@ void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sin
         if (options_.verbose) {
             say("input " + key + (event.value == 1 ? " down" : " up") + " from " + path);
         }
-        physical_key(path, key, event.value == 1);
+        try {
+            physical_key(path, key, event.value == 1);
+        } catch (const std::exception& error) {
+            runtime_error_ = "input handling failed for " + path + ": " + error.what();
+            say(runtime_error_);
+            scheduler_.request_stop();
+            return;
+        }
+        if (scheduler_.stop_requested()) return;
     }
 }
 
@@ -823,14 +860,18 @@ void Runtime::seed_device_keys(const std::string& path, const std::vector<int>& 
 }
 
 void Runtime::disconnect_device(const std::string& path) {
+    std::exception_ptr failure;
     const auto found = device_down_.find(path);
     if (found != device_down_.end()) {
         const std::vector<std::string> released(found->second.begin(), found->second.end());
-        for (const auto& key : released) physical_key(path, key, false);
+        for (const auto& key : released) {
+            try { physical_key(path, key, false); } catch (...) { if (!failure) failure = std::current_exception(); }
+        }
         device_down_.erase(path);
     }
     device_raw_down_.erase(path);
     desynchronized_devices_.erase(path);
+    if (failure) std::rethrow_exception(failure);
 }
 
 void Runtime::physical_key(const std::string& path, const std::string& key, bool down) {
@@ -850,7 +891,18 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
             if (active_remaps_.find(key) != active_remaps_.end()) return;
             std::vector<std::string> names;
             for (const auto& part : split_on(remap.target, '+')) names.push_back(canonical_key(part));
-            for (const auto& name : names) hold_key(name);
+            std::vector<std::string> held;
+            try {
+                for (const auto& name : names) {
+                    hold_key(name);
+                    held.push_back(name);
+                }
+            } catch (...) {
+                for (auto it = held.rbegin(); it != held.rend(); ++it) {
+                    try { free_key(*it); } catch (...) {}
+                }
+                throw;
+            }
             active_remaps_.emplace(key, std::move(names));
             return;
         }
@@ -877,7 +929,11 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
         if (remap_it != active_remaps_.end()) {
             const std::vector<std::string> names = std::move(remap_it->second);
             active_remaps_.erase(remap_it);
-            for (auto it = names.rbegin(); it != names.rend(); ++it) free_key(*it);
+            std::exception_ptr failure;
+            for (auto it = names.rbegin(); it != names.rend(); ++it) {
+                try { free_key(*it); } catch (...) { if (!failure) failure = std::current_exception(); }
+            }
+            if (failure) std::rethrow_exception(failure);
             return;
         }
         for (auto it = held_tasks_.begin(); it != held_tasks_.end();) {
@@ -907,6 +963,11 @@ Task Runtime::timer_loop(const Node& event, double interval) {
 
 Task Runtime::held_loop(Node event, std::string key, double interval) {
     if (interval <= 0.0) co_return;
+    struct HeldTaskGuard {
+        Runtime* runtime;
+        std::pair<std::string, int> id;
+        ~HeldTaskGuard() { runtime->held_tasks_.erase(id); }
+    } guard{this, {key, event.line}};
     // Tick on a fixed schedule: time spent inside the handler is part of the
     // interval, so `every 10ms` with a 5ms tap still repeats every 10ms.
     double deadline = scheduler_.now() + interval;
@@ -1006,11 +1067,31 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             std::vector<std::string> names;
             for (const auto& part : split_on(node.a, '+')) names.push_back(canonical_key(part));
             if (node.b == "press") {
-                for (const auto& name : names) hold_key(name);
+                std::vector<std::string> held;
+                try {
+                    for (const auto& name : names) { hold_key(name); held.push_back(name); }
+                } catch (...) {
+                    for (auto it = held.rbegin(); it != held.rend(); ++it) {
+                        try { free_key(*it); } catch (...) {}
+                    }
+                    throw;
+                }
             } else if (node.b == "free") {
-                for (auto it = names.rbegin(); it != names.rend(); ++it) free_key(*it);
+                std::exception_ptr failure;
+                for (auto it = names.rbegin(); it != names.rend(); ++it) {
+                    try { free_key(*it); } catch (...) { if (!failure) failure = std::current_exception(); }
+                }
+                if (failure) std::rethrow_exception(failure);
             } else {
-                for (const auto& name : names) hold_key(name);
+                std::vector<std::string> held;
+                try {
+                    for (const auto& name : names) { hold_key(name); held.push_back(name); }
+                } catch (...) {
+                    for (auto it = held.rbegin(); it != held.rend(); ++it) {
+                        try { free_key(*it); } catch (...) {}
+                    }
+                    throw;
+                }
                 KeyRelease release{this, names};
                 co_await sleep_for(node.has_duration ? node.duration : 0.06);
             }
@@ -1106,8 +1187,23 @@ void Runtime::send_target(const std::vector<std::string>& names, const std::vect
         if (!has_shift) chord.push_back("LEFTSHIFT");
     }
     chord.insert(chord.end(), names.begin(), names.end());
-    for (const auto& name : chord) hold_key(name);
-    for (auto it = chord.rbegin(); it != chord.rend(); ++it) free_key(*it);
+    std::vector<std::string> held;
+    try {
+        for (const auto& name : chord) {
+            hold_key(name);
+            held.push_back(name);
+        }
+    } catch (...) {
+        for (auto it = held.rbegin(); it != held.rend(); ++it) {
+            try { free_key(*it); } catch (...) {}
+        }
+        throw;
+    }
+    std::exception_ptr failure;
+    for (auto it = chord.rbegin(); it != chord.rend(); ++it) {
+        try { free_key(*it); } catch (...) { if (!failure) failure = std::current_exception(); }
+    }
+    if (failure) std::rethrow_exception(failure);
 }
 
 void Runtime::send_char(char c, const std::vector<std::string>& active_modifiers,
@@ -1164,15 +1260,15 @@ void Runtime::send_string(const std::string& text) {
                     }
                     const std::string name = canonical_key(first);
                     if (action == "down") {
-                        active_modifiers.push_back(name);
                         hold_key(name);
+                        active_modifiers.push_back(name);
                     } else {
                         const auto found = std::find(active_modifiers.rbegin(), active_modifiers.rend(), name);
                         if (found == active_modifiers.rend()) {
                             throw RuntimeErrorKeyloom("send releases " + name + ", but it is not held");
                         }
-                        active_modifiers.erase(std::next(found).base());
                         free_key(name);
+                        active_modifiers.erase(std::next(found).base());
                     }
                     index = close + 1;
                     continue;
@@ -1860,10 +1956,11 @@ void Runtime::hold_button(const std::string& owner, const std::string& button) {
         }
         return;
     }
-    held_tokens_[owner] = button;
-    const int count = button_refs_[button];
-    button_refs_[button] = count + 1;
+    const auto reference = button_refs_.find(button);
+    const int count = reference != button_refs_.end() ? reference->second : 0;
     if (count == 0) backend_->button(button, true);
+    held_tokens_[owner] = button;
+    button_refs_[button] = count + 1;
 }
 
 void Runtime::free_button(const std::string& owner) {
@@ -1883,9 +1980,10 @@ void Runtime::free_button(const std::string& owner) {
 }
 
 void Runtime::hold_key(const std::string& name) {
-    const int count = key_refs_[name];
-    key_refs_[name] = count + 1;
+    const auto found = key_refs_.find(name);
+    const int count = found != key_refs_.end() ? found->second : 0;
     if (count == 0) backend_->key(name, true);
+    key_refs_[name] = count + 1;
 }
 
 void Runtime::free_key(const std::string& name) {

@@ -1,6 +1,7 @@
 #include "harness.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <fcntl.h>
@@ -17,6 +18,7 @@
 #include "parser.hpp"
 #include "runtime.hpp"
 #include "scheduler.hpp"
+#include "subprocess.hpp"
 #include "unique_fd.hpp"
 
 using namespace keyloom;
@@ -479,6 +481,63 @@ loom "toggle-binding" {
     CHECK_EQ(raw->log, std::vector<std::string>({"type F8", "type F8"}));
 }
 
+TEST_CASE(disabled_hotkeys_do_not_arm_up_bindings) {
+    const Script script = parse(R"LOOM(
+loom "disabled-up" {
+    when key F7 goes down { call set_hotkey_enabled("F8", false) }
+    when key F6 goes down { call set_hotkey_enabled("F8", true) }
+    when key F8 goes up { send "F8UP" }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    const auto press = [&runtime](const std::string& key) {
+        runtime.physical_key("fake-keyboard", key, true);
+        runtime.scheduler().run();
+        runtime.physical_key("fake-keyboard", key, false);
+        runtime.scheduler().run();
+    };
+    press("F8");   // enabled: arms and fires up
+    press("F7");   // disables F8
+    press("F8");   // disabled: must not arm or fire
+    press("F6");   // re-enables F8
+    press("F8");   // enabled again
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"type F8UP", "type F8UP"}));
+}
+
+TEST_CASE(suspended_hotkeys_do_not_arm_up_bindings) {
+    const Script script = parse(R"LOOM(
+loom "suspended-up" {
+    when key F9 goes down { call suspend_hotkeys(not hotkeys_suspended()) }
+    when key F8 goes up { send "F8UP" }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<RecordingBackend>();
+    RecordingBackend* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    const auto press = [&runtime](const std::string& key) {
+        runtime.physical_key("fake-keyboard", key, true);
+        runtime.scheduler().run();
+        runtime.physical_key("fake-keyboard", key, false);
+        runtime.scheduler().run();
+    };
+    press("F8");   // not suspended
+    press("F9");   // suspend (F9 exempt)
+    press("F8");   // suspended: must not arm or fire
+    press("F9");   // resume
+    press("F8");   // resumed
+
+    CHECK_EQ(raw->log, std::vector<std::string>({"type F8UP", "type F8UP"}));
+}
+
 TEST_CASE(gui_initialization_failure_cleans_backend_and_preserves_primary_error) {
     const char* display = std::getenv("DISPLAY");
     const bool had_display = display != nullptr;
@@ -699,7 +758,7 @@ TEST_CASE(evdev_overflow_snapshot_failure_stops_runtime) {
     CHECK_TRUE(runtime.runtime_error().find("resynchronization failed") != std::string::npos);
 }
 
-TEST_CASE(evdev_overflow_ignores_stale_keys_already_in_read_batch) {
+TEST_CASE(evdev_overflow_ignores_stale_events_already_in_read_batch) {
     const Script script = parse(R"LOOM(
 loom "overflow-tail" {
     remap key Q to SPACE
@@ -713,13 +772,16 @@ loom "overflow-tail" {
     runtime.set_panic_key("");
     runtime.set_consumed_keys(runtime.collect_consumed_keys());
     FakeSink sink;
+    // The stale tail predates the EVIOCGKEY snapshot, so its keys and its
+    // non-key events (including the trailing SYN_REPORT) must not be replayed.
     runtime.process_events({{EV_SYN, SYN_DROPPED, 0}, {EV_SYN, SYN_REPORT, 0},
-                            {EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}},
+                            {EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 1}, {EV_REL, REL_X, 7},
+                            {EV_SYN, SYN_REPORT, 0}},
                            &sink, "keyboard", [] { return std::vector<int>{KEY_Q}; });
     CHECK_EQ(raw->log, std::vector<std::string>({"key SPACE down"}));
     CHECK_TRUE(runtime.pressed_keys().count("Q") == 1);
     CHECK_TRUE(runtime.pressed_keys().count("A") == 0);
-    CHECK_EQ(sink.writes, std::vector<std::string>({"0:0:0", "0:0:0"}));
+    CHECK_EQ(sink.writes, std::vector<std::string>({"0:0:0"}));
 
     // A subsequent read contains events queued after the snapshot, not its stale tail.
     runtime.process_events({{EV_KEY, KEY_Q, 0}, {EV_KEY, KEY_A, 1}, {EV_SYN, SYN_REPORT, 0}},
@@ -790,6 +852,12 @@ TEST_CASE(consumed_key_events_are_not_replayed) {
     CHECK_EQ(sink.writes.at(0), std::string(std::to_string(EV_KEY) + ":" + std::to_string(KEY_B) + ":1"));
     CHECK_EQ(sink.writes.at(1), std::string(std::to_string(EV_SYN) + ":" + std::to_string(SYN_REPORT) + ":0"));
     CHECK_EQ(sink.writes.at(2), std::string(std::to_string(EV_KEY) + ":" + std::to_string(KEY_B) + ":0"));
+}
+
+TEST_CASE(passthrough_factory_must_return_a_device) {
+    CHECK_THROWS(PassthroughDevice({}, [](const std::string&, const std::string&, const DeviceCapabilities&) {
+        return std::unique_ptr<VirtualInput>();
+    }), BackendError);
 }
 
 TEST_CASE(passthrough_releases_held_keys_on_close) {
@@ -1013,6 +1081,35 @@ TEST_CASE(disconnect_attempts_all_steps_after_passthrough_close_failure) {
     CHECK_THROWS(release_input_capture(&sink, [&] { actions.push_back("ungrab"); },
                                        [&] { actions.push_back("close physical"); }), BackendError);
     CHECK_EQ(actions, std::vector<std::string>({"ungrab", "close physical"}));
+}
+
+TEST_CASE(chord_hold_rolls_back_after_partial_backend_failure) {
+    struct FailOnKeyPress : RecordingBackend {
+        std::string fail_on;
+        void key(const std::string& name, bool down) override {
+            if (down && name == fail_on) throw BackendError("injected key press failure");
+            RecordingBackend::key(name, down);
+        }
+    };
+    const Script script = parse(R"LOOM(
+loom "chord-rollback" {
+    when key F8 goes down {
+        key CTRL+SHIFT tap
+    }
+}
+)LOOM");
+    Runtime runtime(script, Runtime::Options{});
+    auto backend = std::make_unique<FailOnKeyPress>();
+    backend->fail_on = "LEFTSHIFT";
+    auto* raw = backend.get();
+    runtime.set_backend(std::move(backend));
+    runtime.set_panic_key("");
+
+    runtime.physical_key("fake-keyboard", "F8", true);
+    runtime.scheduler().run();
+
+    CHECK_TRUE(runtime.runtime_error().find("injected key press failure") != std::string::npos);
+    CHECK_EQ(raw->log, std::vector<std::string>({"key LEFTCTRL down", "key LEFTCTRL up"}));
 }
 
 TEST_CASE(ydotool_pointer_motion_uses_a_real_absolute_backend) {
@@ -1336,4 +1433,44 @@ TEST_CASE(split_shell_words_matches_shlex) {
              std::vector<std::string>({"cmd", "-a", "two words", "three four"}));
     CHECK_EQ(split_shell_words(R"(printf "a\"b")"), std::vector<std::string>({"printf", "a\"b"}));
     CHECK_THROWS(split_shell_words("cmd 'unclosed"), BackendError);
+}
+
+TEST_CASE(run_command_captures_output_and_exit_status) {
+    const CommandResult ok = run_command({"/bin/sh", "-c", "printf out; printf err >&2"}, "", 2000);
+    CHECK_TRUE(!ok.spawn_failed);
+    CHECK_TRUE(!ok.timed_out);
+    CHECK_EQ(ok.returncode, 0);
+    CHECK_EQ(ok.out, "out");
+    CHECK_EQ(ok.err, "err");
+
+    const CommandResult status = run_command({"/bin/sh", "-c", "exit 7"}, "", 2000);
+    CHECK_TRUE(!status.spawn_failed);
+    CHECK_EQ(status.returncode, 7);
+}
+
+TEST_CASE(run_command_writes_stdin) {
+    const CommandResult result = run_command({"/bin/cat"}, "hello\nfrom stdin", 2000);
+    CHECK_TRUE(!result.spawn_failed);
+    CHECK_TRUE(!result.timed_out);
+    CHECK_EQ(result.returncode, 0);
+    CHECK_EQ(result.out, "hello\nfrom stdin");
+}
+
+TEST_CASE(run_command_enforces_timeout) {
+    const CommandResult result = run_command({"/bin/sleep", "10"}, "", 50);
+    CHECK_TRUE(!result.spawn_failed);
+    CHECK_TRUE(result.timed_out);
+}
+
+TEST_CASE(spawn_detached_returns_without_waiting_and_reports_missing_command) {
+    const auto start = std::chrono::steady_clock::now();
+    std::string error;
+    CHECK_TRUE(spawn_detached({"/bin/sleep", "2"}, error));
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start);
+    CHECK_TRUE(elapsed.count() < 1500);
+
+    std::string missing;
+    CHECK_TRUE(!spawn_detached({"/definitely/not/a/keyloom-command"}, missing));
+    CHECK_TRUE(!missing.empty());
 }

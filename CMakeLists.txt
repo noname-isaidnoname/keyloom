@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.2.0
+    VERSION 0.2.1
     DESCRIPTION "A Linux-first desktop automation language and runtime"
-    LANGUAGES CXX)
+    LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -94,11 +94,18 @@ if(BUILD_TESTING)
     target_link_libraries(picker_upload_probe PRIVATE keyloom_core)
     add_executable(gui_lifetime tests/gui_lifetime.cpp)
     target_link_libraries(gui_lifetime PRIVATE keyloom_core)
+    add_executable(gui_mapping_runtime_probe tests/gui_mapping_runtime_probe.cpp)
+    target_link_libraries(gui_mapping_runtime_probe PRIVATE keyloom_core)
     add_executable(gui_startup_probe tests/gui_startup_probe.cpp)
     target_link_libraries(gui_startup_probe PRIVATE keyloom_core)
     # A probe for a recoverable alternative to Xlib's fatal I/O behavior.
     add_executable(xcb_disconnect_probe tests/xcb_disconnect_probe.cpp)
     target_link_libraries(xcb_disconnect_probe PRIVATE keyloom_core)
+    # Real /dev/uinput ioctl fault injection (LD_PRELOAD shim + probe).
+    add_executable(uinput_fault_probe tests/uinput_fault_probe.cpp)
+    target_link_libraries(uinput_fault_probe PRIVATE keyloom_core)
+    add_library(keyloom_uinput_ioctl_fault_shim SHARED tests/uinput_ioctl_fault_shim.c)
+    target_link_libraries(keyloom_uinput_ioctl_fault_shim PRIVATE ${CMAKE_DL_LIBS})
     add_test(NAME picker_integration
         COMMAND ${CMAKE_COMMAND} -E env
             KEYLOOM_BIN=$<TARGET_FILE:keyloom>
@@ -124,10 +131,18 @@ if(BUILD_TESTING)
             KEYLOOM_BIN=$<TARGET_FILE:keyloom>
             KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
             KEYLOOM_GUI_LIFETIME=$<TARGET_FILE:gui_lifetime>
+            KEYLOOM_GUI_MAPPING_RUNTIME_PROBE=$<TARGET_FILE:gui_mapping_runtime_probe>
             KEYLOOM_GUI_STARTUP_PROBE=$<TARGET_FILE:gui_startup_probe>
             KEYLOOM_XCB_PROBE=$<TARGET_FILE:xcb_disconnect_probe>
             bash ${CMAKE_SOURCE_DIR}/tests/gui_integration.sh)
     set_tests_properties(gui_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+
+    add_test(NAME uinput_fault_integration
+        COMMAND ${CMAKE_COMMAND} -E env
+            KEYLOOM_UINPUT_FAULT_PROBE=$<TARGET_FILE:uinput_fault_probe>
+            KEYLOOM_UINPUT_IOCTL_FAULT_SHIM=$<TARGET_FILE:keyloom_uinput_ioctl_fault_shim>
+            bash ${CMAKE_SOURCE_DIR}/tests/uinput_fault_integration.sh)
+    set_tests_properties(uinput_fault_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
 endif()
 
 install(TARGETS keyloom RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")

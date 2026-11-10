@@ -105,6 +105,12 @@ int command_init(const std::string& name, bool force) {
     }
     stream << init_template(escaped);
     stream.close();
+    if (!stream) {
+        std::error_code remove_error;
+        std::filesystem::remove(path, remove_error);
+        std::cerr << kMarker << "failed while writing " << path.string() << "\n";
+        return 2;
+    }
     std::cout << "Created " << path.string() << "\n";
     std::cout << "Next: keyloom --check " << path.string() << " && keyloom --run " << path.string() << "\n";
     return 0;

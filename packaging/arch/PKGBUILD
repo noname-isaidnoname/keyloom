@@ -12,11 +12,14 @@
 
 pkgname=keyloom
 # Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
-pkgver=0.5.1
+pkgver=0.5.2
 pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
 license=(MIT)
+# Release artifacts contain the main package only; avoid a distribution-default
+# split debug package appearing alongside it when makepkg enables debug symbols.
+options=(!debug)
 # X11 and libpng support the picker; XCB supports GUI transport development.
 depends=(
     glibc

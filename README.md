@@ -11,8 +11,8 @@ Keyloom is a Linux-first desktop automation language and native C++20 runtime. S
 
 ### Release downloads
 
-GitHub Releases provides x86-64 Linux `.deb`, `.rpm`, binary `.tar.gz`,
-AppImage and source archives, plus `SHA256SUMS`. Nightly builds are prereleases
+GitHub Releases provides x86-64 Linux Arch `.pkg.tar.zst`, `.deb`, `.rpm`, binary
+`.tar.gz`, AppImage and source archives, plus `SHA256SUMS`. Nightly builds are prereleases
 and may be untested. Verify downloads with `sha256sum -c SHA256SUMS` (download
 all files listed first). Install the native package with your distribution's
 package manager, or extract the binary tarball and run its `bin/keyloom`.
@@ -20,8 +20,18 @@ For the AppImage, `chmod +x keyloom-*.AppImage` and run it with the usual CLI
 arguments, for example `./keyloom-*.AppImage --version`. If FUSE is unavailable,
 use `APPIMAGE_EXTRACT_AND_RUN=1 ./keyloom-*.AppImage --version`.
 
-Release binaries are built on Ubuntu 24.04 (glibc 2.39 baseline); older systems
-may need a source build. Packages do not install input permissions or optional
+On Arch Linux, install the downloaded Arch package with:
+
+```bash
+sudo pacman -U ./keyloom-*.pkg.tar.zst
+```
+
+The Arch package registers `.loom` files with the desktop and installs a
+system-wide default application association. An existing unowned
+`/etc/xdg/mimeapps.list` can cause an installation conflict; do not overwrite
+it without reviewing your existing desktop associations. The other release binaries are
+built on Ubuntu 24.04 (glibc 2.39 baseline); older systems may need a source
+build. Packages do not install input permissions or optional
 desktop tools; see the setup and permissions instructions below.
 
 ### Build from source

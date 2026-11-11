@@ -5,33 +5,31 @@ on:
     - cron: '23 3 * * *'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Release version (X.Y.Z, must match CMakeLists.txt)'
-        required: true
+      description:
+        description: 'Release notes (Markdown; optional)'
+        required: false
         type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event_name == 'schedule' && 'nightly' || inputs.version }}
+  group: release-${{ github.event_name }}
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate version
-        env:
-          EVENT: ${{ github.event_name }}
-          REQUESTED: ${{ inputs.version }}
+      - name: Read project version
+        id: version
         run: |
           version=$(sed -n 's/^[[:space:]]*VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -n1)
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          if [[ "$EVENT" != schedule ]]; then
-            [[ "$REQUESTED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$REQUESTED" == "$version" ]] || { echo 'Requested version must match CMakeLists.txt' >&2; exit 1; }
-          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -63,16 +61,56 @@ jobs:
           tar -xzf build/artifacts/*-x86_64.tar.gz -C /tmp/tar-test
           find /tmp/tar-test -type f -name keyloom -exec {} --version \;
           APPIMAGE_EXTRACT_AND_RUN=1 build/artifacts/*.AppImage --version
-          (cd build/artifacts && sha256sum -- * > SHA256SUMS)
       - uses: actions/upload-artifact@v4
         with:
           name: release-files
           path: build/artifacts/*
           if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  arch:
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install Arch build dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland ccache desktop-file-utils shared-mime-info
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/keyloom-ccache
+          key: arch-x86_64-ccache-${{ github.sha }}
+          restore-keys: arch-x86_64-ccache-
+      - name: Build Arch package as an unprivileged user
+        run: |
+          useradd --create-home keyloom-builder
+          mkdir -p /tmp/keyloom-ccache /tmp/keyloom-artifacts
+          chown -R keyloom-builder:keyloom-builder /tmp/keyloom-ccache /tmp/keyloom-artifacts
+          runuser -u keyloom-builder -- env CCACHE_DIR=/tmp/keyloom-ccache CMAKE_BUILD_PARALLEL_LEVEL=2 KEYLOOM_PACKAGE_OUT=/tmp/keyloom-artifacts "$GITHUB_WORKSPACE/scripts/package-arch.sh"
+      - name: Install and smoke test Arch package
+        run: |
+          shopt -s nullglob
+          packages=(/tmp/keyloom-artifacts/keyloom-*.pkg.tar.zst)
+          [[ ${#packages[@]} -eq 1 ]] || { echo 'Expected exactly one Arch package' >&2; exit 1; }
+          pacman -U --noconfirm "${packages[0]}"
+          pacman -Q keyloom
+          keyloom --version
+          keyloom --check "$GITHUB_WORKSPACE/examples/two_spots.loom"
+          ldd /usr/bin/keyloom | grep -q 'libgtk-3.so'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: /tmp/keyloom-artifacts/*.pkg.tar.zst
+          if-no-files-found: error
+          compression-level: 0
           retention-days: 7
 
   publish:
-    needs: build
+    needs: [build, arch]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -81,15 +119,45 @@ jobs:
         with:
           name: release-files
           path: artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: arch-package
+          path: artifacts
+      - name: Verify and checksum assets
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd artifacts
+          for file in "keyloom-$VERSION-source.tar.gz" "keyloom-$VERSION-x86_64.tar.gz" "keyloom-$VERSION-x86_64.deb" "keyloom-$VERSION-x86_64.rpm" "keyloom-$VERSION-x86_64.AppImage"; do
+            [[ -s "$file" ]] || { echo "Missing $file" >&2; exit 1; }
+          done
+          shopt -s nullglob
+          arch=("keyloom-$VERSION"-*-x86_64.pkg.tar.zst)
+          [[ ${#arch[@]} -eq 1 && -s ${arch[0]} ]] || { echo 'Expected one matching Arch package' >&2; exit 1; }
+          files=(*)
+          [[ ${#files[@]} -eq 6 ]] || { echo 'Expected exactly six release artifacts' >&2; exit 1; }
+          sha256sum -- * > SHA256SUMS
+          sha256sum -c SHA256SUMS
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           EVENT: ${{ github.event_name }}
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ needs.build.outputs.version }}
+          DESCRIPTION: ${{ inputs.description }}
           SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          append_downloads() {
+            printf '%s\n' '## Downloads' '' \
+              '- Arch Linux: install the `.pkg.tar.zst` with `sudo pacman -U <package>`.' \
+              '- Debian/Ubuntu: install the `.deb` with your package manager.' \
+              '- RPM-based systems: install the `.rpm` with your package manager.' \
+              '- Other supported systems: use the AppImage, binary tarball, or build from source.' \
+              '- Verify downloads using `SHA256SUMS`.' >> /tmp/release-notes.md
+            printf '\nSee the [README](https://github.com/%s#setup) for setup and permissions.\n' "$GH_REPO" >> /tmp/release-notes.md
+          }
           if [[ "$EVENT" == schedule ]]; then
             # Only move the nightly tag after all artifacts have passed the build.
             if gh api "repos/$GH_REPO/git/ref/tags/nightly" >/dev/null 2>&1; then
@@ -98,11 +166,20 @@ jobs:
               gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null
             fi
             if gh release view nightly >/dev/null 2>&1; then gh release delete nightly --yes; fi
-            gh release create nightly artifacts/* --title 'Nightly build' --notes "Automated build of $SHA. May be untested; use at your own risk." --prerelease --verify-tag
+            printf 'Automated build of `%s` (version %s).\n\n**Nightly builds may be untested. Use at your own risk.**\n\n' "$SHA" "$VERSION" > /tmp/release-notes.md
+            append_downloads
+            gh release create nightly artifacts/* --title 'Nightly build' --notes-file /tmp/release-notes.md --prerelease --verify-tag
           else
             # Never overwrite an existing release or tag with different code.
             if gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" >/dev/null 2>&1 || gh release view "v$VERSION" >/dev/null 2>&1; then
               echo "Tag or release v$VERSION already exists" >&2; exit 1
             fi
-            gh release create "v$VERSION" artifacts/* --target "$SHA" --title "Keyloom $VERSION" --generate-notes
+            if [[ -n "$DESCRIPTION" ]]; then
+              printf '%s\n\n' "$DESCRIPTION" > /tmp/release-notes.md
+            else
+              printf 'Keyloom %s for Linux.\n\n' "$VERSION" > /tmp/release-notes.md
+            fi
+            append_downloads
+            printf '\nBuilt from commit `%s`.\n' "$SHA" >> /tmp/release-notes.md
+            gh release create "v$VERSION" artifacts/* --target "$SHA" --title "Keyloom $VERSION" --notes-file /tmp/release-notes.md
           fi

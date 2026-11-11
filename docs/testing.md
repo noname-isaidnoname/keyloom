@@ -44,7 +44,7 @@ cmake --build build/release -j$(nproc)
 `keyloom_tests` prints one `ok   <name>` line per test and a final
 `N/N tests passed` summary. `run_all(filter)` accepts a substring filter.
 The release and sanitizer CTest presets print failing test output. GitHub CI
-installs Xvfb, xdotool and scrot to exercise the headless GUI and picker tests;
+installs Xvfb, xdotool and ImageMagick to exercise the headless GUI and picker tests;
 device-dependent tests can still skip on hosted runners without `/dev/uinput`.
 
 ### CTest tests

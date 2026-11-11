@@ -63,9 +63,9 @@ Weston and the optional GTK3/wayland-client build dependencies are available.
 
 Exit code 77 means "skipped" (missing X server, xdotool, screenshot tool,
 `/dev/uinput`, or an unconfirmed isolation precondition), not a failure.
-`picker_integration` and `picker_integration_16` use disjoint display ranges so
-CTest can run them concurrently; both share the `picker_display` resource lock
-because they use the same screenshot tool.
+The picker variants use disjoint display ranges but share screenshot tools.
+They, the X11 GUI test and the Wayland test share the `graphical_integration`
+resource lock to avoid compositor startup starvation on small CI runners.
 
 ## Sanitizers
 

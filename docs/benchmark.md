@@ -37,8 +37,9 @@ viewable and its masks are selected, so the poll interval dropped from 100 ms
 to 20 ms. The GUI mapping probe dropped from a fixed 3 s to 1.5 s. The two
 picker variants got disjoint display ranges (91–95 and 81–85) so CTest can run
 four jobs without them fighting over an X server. They still share the
-`picker_display` resource lock because they use the same screenshot tool, and
-spectacle is single-instance.
+`picker_display` resource lock in this measurement because they use the same
+screenshot tool, and spectacle is single-instance. The current suite uses the
+broader `graphical_integration` lock; see [testing.md](testing.md).
 
 ### Pass 4 — cold build
 

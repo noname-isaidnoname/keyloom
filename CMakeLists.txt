@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.5.2
+    VERSION 0.5.3
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -155,7 +155,7 @@ if(BUILD_TESTING)
                 KEYLOOM_WAYLAND_PROBE=$<TARGET_FILE:wayland_gui_probe>
                 KEYLOOM_TEST_HOOKS=1
                 bash ${CMAKE_SOURCE_DIR}/tests/wayland_integration.sh)
-        set_tests_properties(wayland_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 45)
+        set_tests_properties(wayland_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK graphical_integration)
     endif()
     # A probe for a recoverable alternative to Xlib's fatal I/O behavior.
     add_executable(xcb_disconnect_probe tests/xcb_disconnect_probe.cpp)
@@ -165,10 +165,9 @@ if(BUILD_TESTING)
     target_link_libraries(uinput_fault_probe PRIVATE keyloom_core keyloom_test_options)
     add_library(keyloom_uinput_ioctl_fault_shim SHARED tests/uinput_ioctl_fault_shim.c)
     target_link_libraries(keyloom_uinput_ioctl_fault_shim PRIVATE ${CMAKE_DL_LIBS})
-    # The two picker variants use disjoint display ranges, so they do not fight
-    # over an X server. They still share the host's screenshot tool, and
-    # spectacle is single-instance, so only one picker may capture the desktop
-    # at a time: the resource lock keeps the two variants apart.
+    # Graphical integration tests create several compositors and helper
+    # processes. Serialize them to avoid startup starvation on small CI
+    # runners; the picker variants also share screenshot tools.
     add_test(NAME picker_integration
         COMMAND ${CMAKE_COMMAND} -E env
             KEYLOOM_BIN=$<TARGET_FILE:keyloom>
@@ -178,7 +177,7 @@ if(BUILD_TESTING)
             XDG_SESSION_TYPE=x11
             PICKER_TEST_DISPLAY_NUMBERS=91,92,93,94,95
             bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
-    set_tests_properties(picker_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK picker_display)
+    set_tests_properties(picker_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK graphical_integration)
     find_program(KEYLOOM_XVFB Xvfb)
     if(KEYLOOM_XVFB)
         add_test(NAME picker_integration_16
@@ -191,7 +190,7 @@ if(BUILD_TESTING)
                 PICKER_TEST_DEPTH=16
                 PICKER_TEST_DISPLAY_NUMBERS=81,82,83,84,85
                 bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
-        set_tests_properties(picker_integration_16 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK picker_display)
+        set_tests_properties(picker_integration_16 PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK graphical_integration)
     endif()
     add_test(NAME gui_integration
         COMMAND ${CMAKE_COMMAND} -E env
@@ -203,7 +202,7 @@ if(BUILD_TESTING)
             KEYLOOM_XCB_PROBE=$<TARGET_FILE:xcb_disconnect_probe>
             XDG_SESSION_TYPE=x11
             bash ${CMAKE_SOURCE_DIR}/tests/gui_integration.sh)
-    set_tests_properties(gui_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+    set_tests_properties(gui_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60 RESOURCE_LOCK graphical_integration)
 
     add_test(NAME uinput_fault_integration
         COMMAND ${CMAKE_COMMAND} -E env

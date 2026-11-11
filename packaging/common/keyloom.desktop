@@ -3,6 +3,7 @@ Type=Application
 Name=Keyloom
 Comment=Run a Keyloom automation script
 Exec=keyloom-terminal %f
+Icon=keyloom
 MimeType=application/x-keyloom;
 Categories=Utility;
 StartupNotify=true

@@ -28,6 +28,15 @@ installed separately. Other architectures and older systems should build from
 source. SHA256SUMS detects corruption, not malicious replacements; no signing
 or independent provenance verification is currently provided.
 
+All packages ship the same desktop integration files from `packaging/common/`:
+the application entry with its scalable `hicolor` icon, the
+`application/x-keyloom` MIME type and the `keyloom-terminal` launcher. The DEB
+and RPM packages refresh the desktop, icon and MIME caches from their
+post-install scripts; the Arch package does the same in `post_install()`. The
+Arch package additionally registers the system-wide default handler in
+`/etc/xdg/mimeapps.list`; DEB and RPM rely on the desktop's own association
+handling. The AppImage carries the icon and desktop entry inside the image.
+
 ## Publishing
 
 The release workflow runs nightly on the default branch and by manual dispatch.

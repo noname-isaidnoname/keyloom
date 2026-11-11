@@ -43,7 +43,7 @@ case ${1:-} in
         done < <(ldd "$build/keyloom" | awk '/=> \/.* \(/ {print $3}')
         install -m755 "$root/packaging/appimage/AppRun" "$appdir/AppRun"
         install -m644 "$root/packaging/appimage/keyloom.desktop" "$appdir/keyloom.desktop"
-        install -m644 "$root/packaging/appimage/keyloom.svg" "$appdir/keyloom.svg"
+        install -m644 "$root/packaging/common/keyloom.svg" "$appdir/keyloom.svg"
         rsvg-convert -w 256 -h 256 "$appdir/keyloom.svg" -o "$appdir/keyloom.png"
         args=()
         if [[ -n ${APPIMAGE_RUNTIME:-} ]]; then args+=(--runtime-file "$APPIMAGE_RUNTIME"); fi

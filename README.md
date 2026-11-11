@@ -34,6 +34,18 @@ built on Ubuntu 24.04 (glibc 2.39 baseline); older systems may need a source
 build. Packages do not install input permissions or optional
 desktop tools; see the setup and permissions instructions below.
 
+Every native package (Arch, DEB, RPM and the binary tarball) also installs the
+desktop integration files, so Keyloom shows up in your application menu with
+its icon and `*.loom` files can be opened from a file manager:
+
+- an application entry named *Keyloom*,
+- a scalable icon that follows your theme,
+- the `application/x-keyloom` MIME type for `*.loom` files,
+- `keyloom-terminal`, which runs a script inside a terminal emulator so its
+  output stays visible.
+
+The AppImage carries the icon and desktop entry inside the image.
+
 ### Build from source
 
 You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, and X11/XCB/libpng development headers. GTK3 and Wayland development headers enable native Wayland panels; without them, panels use X11/Xwayland.
@@ -57,7 +69,14 @@ Build and install:
 PREFIX="$HOME/.local" ./scripts/install.sh        # install into a writable prefix
 ```
 
-`scripts/install.sh` builds and installs Keyloom. It never uses `sudo`.
+`scripts/install.sh` builds and installs Keyloom. It never uses `sudo`. It also
+installs the desktop entry, icon, MIME type and `keyloom-terminal` launcher,
+so the application menu and file manager pick them up. To install the binary
+alone, run:
+
+```bash
+KEYLOOM_CMAKE_ARGS=-DKEYLOOM_DESKTOP_INTEGRATION=OFF ./scripts/install.sh
+```
 
 On Arch-based distributions, you can build and install a native package:
 

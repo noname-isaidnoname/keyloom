@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.5.3
+    VERSION 0.5.4
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -15,6 +15,8 @@ option(KEYLOOM_USE_MOLD "Link with mold when the linker is installed" ON)
 option(KEYLOOM_SANITIZE "Build with the address and undefined behaviour sanitizers" OFF)
 option(KEYLOOM_HARDEN "Enable the usual release hardening flags" ON)
 option(KEYLOOM_WAYLAND "Enable native Wayland panels when GTK3 and wayland-client are available" ON)
+option(KEYLOOM_DESKTOP_INTEGRATION
+    "Install the desktop entry, icon, MIME type and terminal launcher" ON)
 
 # ccache: honour an explicit -DCMAKE_CXX_COMPILER_LAUNCHER, otherwise use ccache
 # when it exists. CMakePresets.json sets the same thing for preset builds.
@@ -215,6 +217,21 @@ endif()
 install(TARGETS keyloom RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/keyloom")
 
+# Desktop integration: an application entry with an icon, the .loom MIME type
+# and the terminal launcher the entry calls. Every packaged build (DEB, RPM,
+# tarball, Arch) installs these, so the program is visible in the application
+# menu and double-clicking a script opens a terminal.
+if(KEYLOOM_DESKTOP_INTEGRATION)
+    install(FILES packaging/common/keyloom.desktop
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+    install(FILES packaging/common/keyloom.svg
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
+    install(FILES packaging/common/keyloom.xml
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/mime/packages")
+    install(PROGRAMS packaging/common/keyloom-terminal
+        DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
+
 set(CPACK_PACKAGE_NAME keyloom)
 set(CPACK_PACKAGE_VENDOR "Keyloom contributors")
 set(CPACK_PACKAGE_CONTACT "Keyloom contributors")
@@ -222,6 +239,18 @@ set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Linux desktop automation language and run
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_PACKAGE_FILE_NAME "keyloom-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "shared-mime-info, desktop-file-utils, hicolor-icon-theme")
+set(CPACK_RPM_PACKAGE_SUGGESTS "shared-mime-info, desktop-file-utils, hicolor-icon-theme")
 set(CPACK_RPM_PACKAGE_LICENSE MIT)
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+if(KEYLOOM_DESKTOP_INTEGRATION)
+    # Refresh the desktop, icon and MIME caches after the files land.
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${CMAKE_SOURCE_DIR}/packaging/common/postinst"
+        "${CMAKE_SOURCE_DIR}/packaging/common/postrm")
+    set(CPACK_RPM_POST_INSTALL_SCRIPT_FILE
+        "${CMAKE_SOURCE_DIR}/packaging/common/rpm/post-install.sh")
+    set(CPACK_RPM_POST_UNINSTALL_SCRIPT_FILE
+        "${CMAKE_SOURCE_DIR}/packaging/common/rpm/post-uninstall.sh")
+endif()
 include(CPack)

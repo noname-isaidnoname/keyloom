@@ -46,6 +46,7 @@ loom file → lexer → parser → checker → runtime
 | `tests/*.cpp` | parser, checker, runtime, scheduler, picker and CLI tests (`tests/harness.hpp` mini test runner) |
 | `Makefile` | thin one-word targets (`make`, `make test`, `make install`, `make package`) |
 | `packaging/arch/PKGBUILD` | Arch package built from a local checkout; `check()` runs the test suite only with `KEYLOOM_BUILD_TESTS=ON` |
+| `packaging/common/` | Shared desktop entry, scalable icon, MIME type, terminal launcher and package post-install scripts installed by CMake |
 
 ## Compilation units
 

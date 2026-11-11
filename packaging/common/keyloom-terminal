@@ -1,41 +1,46 @@
 #!/bin/sh
 # Run keyloom on a script inside a terminal emulator so its output stays
 # visible after the file manager launches it (e.g. double-clicking a .loom
-# file). Installed by the Arch package; not used by make install.
+# file) or after the application menu starts it.
 #
-#   keyloom-terminal [--] SCRIPT [keyloom args...]
+#   keyloom-terminal [--] [SCRIPT] [keyloom args...]
 #
+# Without a script, keyloom is started with no arguments and prints its help.
 # The terminal is detected at runtime: $TERMINAL (colon-separated, per the
 # freedesktop terminal spec) is tried first, then a list of common emulators.
 # If none is found, keyloom runs in the foreground anyway.
 set -eu
 
 usage() {
-    echo 'usage: keyloom-terminal [--] SCRIPT [keyloom args...]' >&2
+    echo 'usage: keyloom-terminal [--] [SCRIPT] [keyloom args...]' >&2
     exit 2
 }
 
-[ $# -ge 1 ] || usage
-if [ "$1" = "--" ]; then
+if [ $# -ge 1 ] && [ "$1" = "--" ]; then
     shift
-    [ $# -ge 1 ] || usage
 fi
 
-script=$1
-shift
+script=""
+if [ $# -ge 1 ] && [ "${1#-}" = "$1" ]; then
+    script=$1
+    shift
+fi
 
 try_terminal() {
     # $1 is "exe [prefix args...]"; the remaining args go to keyloom.
     line=$1
     shift
     case $line in
-        *\ *) exe=${line%% *}; prefix=${line#* } ;;
+        *\ *) exe=${line%% *}; prefix=${line#* *} ;;
         *)   exe=$line; prefix= ;;
     esac
     command -v "$exe" >/dev/null 2>&1 || return 1
     # prefix is a fixed list of argument words without spaces.
     # shellcheck disable=SC2086
-    exec $exe $prefix keyloom "$script" "$@"
+    if [ -n "$script" ]; then
+        exec $exe $prefix keyloom "$script" "$@"
+    fi
+    exec $exe $prefix keyloom "$@"
 }
 
 if [ -n "${TERMINAL:-}" ]; then
@@ -66,4 +71,7 @@ do
 done
 
 echo 'keyloom-terminal: no terminal emulator found; running keyloom directly' >&2
-exec keyloom "$script" "$@"
+if [ -n "$script" ]; then
+    exec keyloom "$script" "$@"
+fi
+exec keyloom "$@"

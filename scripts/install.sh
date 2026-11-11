@@ -50,7 +50,11 @@ if [[ ! -w "$PREFIX" ]]; then
 fi
 
 echo "Configuring (release)..."
-cmake --preset release -DBUILD_TESTING=OFF >/dev/null
+# Extra CMake arguments can be passed in KEYLOOM_CMAKE_ARGS, for example
+# KEYLOOM_CMAKE_ARGS=-DKEYLOOM_DESKTOP_INTEGRATION=OFF to install the binary
+# without the desktop entry, icon, MIME type and terminal launcher.
+# shellcheck disable=SC2086
+cmake --preset release -DBUILD_TESTING=OFF ${KEYLOOM_CMAKE_ARGS:-} >/dev/null
 echo "Building..."
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 echo "Installing into $PREFIX..."

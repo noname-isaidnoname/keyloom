@@ -12,7 +12,7 @@
 
 pkgname=keyloom
 # Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
-pkgver=0.5.3
+pkgver=0.5.4
 pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
@@ -21,6 +21,9 @@ license=(MIT)
 # split debug package appearing alongside it when makepkg enables debug symbols.
 options=(!debug)
 # X11 and libpng support the picker; XCB supports GUI transport development.
+# hicolor-icon-theme provides the icon theme the scalable keyloom.svg is
+# registered in; the desktop-file-utils and shared-mime-info packages provide
+# the cache tools the post-install hook runs.
 depends=(
     glibc
     gcc-libs
@@ -29,6 +32,9 @@ depends=(
     libpng
     gtk3
     wayland
+    hicolor-icon-theme
+    desktop-file-utils
+    shared-mime-info
 )
 makedepends=(
     'cmake>=3.25'
@@ -86,24 +92,21 @@ package() {
     install -Dm644 "${_keyloom_source_dir}/LICENSE" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
-    # .loom file association: MIME type, desktop entry (default handler) and
-    # the keyloom-terminal launcher that runs scripts inside a terminal.
-    install -Dm644 "${_keyloom_source_dir}/packaging/arch/keyloom-mime.xml" \
-        "${pkgdir}/usr/share/mime/packages/keyloom.xml"
-    install -Dm644 "${_keyloom_source_dir}/packaging/arch/keyloom.desktop" \
-        "${pkgdir}/usr/share/applications/keyloom.desktop"
+    # The desktop entry, the scalable icon and the .loom MIME type are
+    # installed by CMake (see KEYLOOM_DESKTOP_INTEGRATION), so they are the
+    # same files the DEB and RPM packages ship.
     # Default-application associations live in $XDG_CONFIG_DIRS/mimeapps.list
     # (/etc/xdg), which takes precedence over /usr/share/applications and is
     # not subject to the unowned-stub conflicts that path can hit.
     install -Dm644 "${_keyloom_source_dir}/packaging/arch/mimeapps.list" \
         "${pkgdir}/etc/xdg/mimeapps.list"
-    install -Dm755 "${_keyloom_source_dir}/packaging/arch/keyloom-terminal" \
-        "${pkgdir}/usr/bin/keyloom-terminal"
 }
 
 post_install() {
     update-mime-database /usr/share/mime
     update-desktop-database /usr/share/applications
+    # Fails without the hicolor icon theme index; the icon is still installed.
+    gtk-update-icon-cache -q -f /usr/share/icons/hicolor || true
 }
 
 post_upgrade() {
@@ -113,4 +116,5 @@ post_upgrade() {
 post_remove() {
     update-mime-database /usr/share/mime
     update-desktop-database /usr/share/applications
+    gtk-update-icon-cache -q -f /usr/share/icons/hicolor || true
 }

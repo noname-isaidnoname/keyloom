@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.5.0
+    VERSION 0.5.1
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 

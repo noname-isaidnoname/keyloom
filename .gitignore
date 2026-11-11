@@ -1,10 +1,22 @@
 # Build output
 build/
+/keyloom
+*.o
+*.a
+*.so
+*.so.*
+*.elf
+*.exe
 
-# Arch packaging artifacts
+# Package artifacts (release files belong in GitHub Releases, not Git)
+*.pkg.tar.*
+*.deb
+*.rpm
+*.AppImage
+keyloom-*-x86_64.tar.gz
+keyloom-*-aarch64.tar.gz
 packaging/arch/pkg/
 packaging/arch/src/
-packaging/arch/*.pkg.tar.*
 
 # Editors and OS noise
 *.swp

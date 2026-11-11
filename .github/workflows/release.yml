@@ -1,0 +1,108 @@
+name: Build and publish releases
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (X.Y.Z, must match CMakeLists.txt)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'schedule' && 'nightly' || inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate version
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          version=$(sed -n 's/^[[:space:]]*VERSION \([0-9][0-9.]*\)$/\1/p' CMakeLists.txt | head -n1)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          if [[ "$EVENT" != schedule ]]; then
+            [[ "$REQUESTED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$REQUESTED" == "$version" ]] || { echo 'Requested version must match CMakeLists.txt' >&2; exit 1; }
+          fi
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build ccache libx11-dev libxcb1-dev libpng-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ runner.os }}-24.04-ccache-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-24.04-ccache-
+      - name: Build and test
+        run: make JOBS=2
+      - name: Download appimagetool
+        run: |
+          curl --fail --location --retry 3 -o /tmp/appimagetool 'https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage'
+          echo 'e8c1169c4af66c3184d7ee110713d4be04befe671fa358e2c1591ee840553b03  /tmp/appimagetool' | sha256sum -c -
+          chmod +x /tmp/appimagetool
+          curl --fail --location --retry 3 -o /tmp/appimage-runtime 'https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64'
+          echo '617aa77314d57c8b8e4fae9c3f0b35af7b30d5529cb69e98f64f92510ed98a46  /tmp/appimage-runtime' | sha256sum -c -
+          echo APPIMAGE_RUNTIME=/tmp/appimage-runtime >> "$GITHUB_ENV"
+          echo /tmp >> "$GITHUB_PATH"
+      - name: Package and smoke test
+        run: |
+          for format in source tar deb rpm appimage; do scripts/package.sh "$format"; done
+          mkdir -p /tmp/deb-test /tmp/rpm-test /tmp/tar-test
+          dpkg-deb -x build/artifacts/*.deb /tmp/deb-test
+          /tmp/deb-test/usr/bin/keyloom --version
+          (cd /tmp/rpm-test && rpm2cpio "$GITHUB_WORKSPACE"/build/artifacts/*.rpm | cpio -idm --quiet)
+          /tmp/rpm-test/usr/bin/keyloom --version
+          tar -xzf build/artifacts/*-x86_64.tar.gz -C /tmp/tar-test
+          find /tmp/tar-test -type f -name keyloom -exec {} --version \;
+          APPIMAGE_EXTRACT_AND_RUN=1 build/artifacts/*.AppImage --version
+          (cd build/artifacts && sha256sum -- * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: build/artifacts/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-files
+          path: artifacts
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          VERSION: ${{ inputs.version }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == schedule ]]; then
+            # Only move the nightly tag after all artifacts have passed the build.
+            if gh api "repos/$GH_REPO/git/ref/tags/nightly" >/dev/null 2>&1; then
+              gh api -X PATCH "repos/$GH_REPO/git/refs/tags/nightly" -f sha="$SHA" -F force=true >/dev/null
+            else
+              gh api -X POST "repos/$GH_REPO/git/refs" -f ref=refs/tags/nightly -f sha="$SHA" >/dev/null
+            fi
+            if gh release view nightly >/dev/null 2>&1; then gh release delete nightly --yes; fi
+            gh release create nightly artifacts/* --title 'Nightly build' --notes "Automated build of $SHA. May be untested; use at your own risk." --prerelease --verify-tag
+          else
+            # Never overwrite an existing release or tag with different code.
+            if gh api "repos/$GH_REPO/git/ref/tags/v$VERSION" >/dev/null 2>&1 || gh release view "v$VERSION" >/dev/null 2>&1; then
+              echo "Tag or release v$VERSION already exists" >&2; exit 1
+            fi
+            gh release create "v$VERSION" artifacts/* --target "$SHA" --title "Keyloom $VERSION" --generate-notes
+          fi

@@ -1,5 +1,8 @@
 # Build and install
 
+For release downloads, packaging scripts, and container-based verification see
+[releases.md](releases.md).
+
 ## Prerequisites
 
 - C++20 toolchain (GCC or Clang)

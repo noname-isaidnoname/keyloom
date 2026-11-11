@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Keyloom
+Comment=Linux desktop automation language
+Exec=keyloom
+Icon=keyloom
+Terminal=true
+Categories=Utility;
+NoDisplay=true

@@ -12,8 +12,8 @@
 
 pkgname=keyloom
 # Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
-pkgver=0.4.0
-pkgrel=4
+pkgver=0.4.1
+pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
 license=(MIT)

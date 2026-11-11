@@ -9,6 +9,24 @@ Keyloom is a Linux-first desktop automation language and native C++20 runtime. S
 
 ## Setup
 
+### Release downloads
+
+GitHub Releases provides x86-64 Linux `.deb`, `.rpm`, binary `.tar.gz`,
+AppImage and source archives, plus `SHA256SUMS`. Nightly builds are prereleases
+and may be untested. Verify downloads with `sha256sum -c SHA256SUMS` (download
+all files listed first). Install the native package with your distribution's
+package manager, or extract the binary tarball and run its `bin/keyloom`.
+For the AppImage, `chmod +x keyloom-*.AppImage` and run it with the usual CLI
+arguments, for example `./keyloom-*.AppImage --version`. If FUSE is unavailable,
+use `APPIMAGE_EXTRACT_AND_RUN=1 ./keyloom-*.AppImage --version`.
+
+Release binaries are built on Ubuntu 24.04 (glibc 2.39 baseline); older systems
+may need a source build. Packages do not install input permissions or optional
+desktop tools. See [build and install](docs/build-and-install.md) and
+[release and container testing](docs/releases.md).
+
+### Build from source
+
 You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, and X11/XCB/libpng development headers.
 
 Debian/Ubuntu:

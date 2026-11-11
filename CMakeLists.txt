@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.4.0
+    VERSION 0.4.1
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -184,3 +184,15 @@ if(BUILD_TESTING)
 endif()
 
 install(TARGETS keyloom RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/keyloom")
+
+set(CPACK_PACKAGE_NAME keyloom)
+set(CPACK_PACKAGE_VENDOR "Keyloom contributors")
+set(CPACK_PACKAGE_CONTACT "Keyloom contributors")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Linux desktop automation language and runtime")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_FILE_NAME "keyloom-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_RPM_PACKAGE_LICENSE MIT)
+set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
+include(CPack)

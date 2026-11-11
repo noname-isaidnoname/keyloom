@@ -21,6 +21,7 @@ User-facing documentation lives outside this folder:
 | [architecture.md](architecture.md) | Repo layout, compilation units, the lexer→parser→checker→runtime pipeline, the scheduler and task model, input/output/GUI subsystems |
 | [build-and-install.md](build-and-install.md) | Prerequisites, build presets, Makefile targets, CMake options, install layout, Arch packaging, runtime permissions |
 | [testing.md](testing.md) | Test-suite layout, how to run it, unit tests, integration tests, sanitizers, verification commands |
+| [releases.md](releases.md) | Release artifacts, publishing, and efficient Podman-based CI verification |
 | [benchmark.md](benchmark.md) | Measured build/test performance, the optimisations that produced it, how to reproduce the numbers |
 | [implementation-traps.md](implementation-traps.md) | Backend and runtime traps: ydotool absolute motion, uinput device classification, coroutine stack growth, cancellation, holds, evdev recovery |
 | [language-internals.md](language-internals.md) | Grammar and AST, statement dispatch, builtins, key names, string decoding, and the extension points for statements, builtins and backends |

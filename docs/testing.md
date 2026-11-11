@@ -1,5 +1,7 @@
 # Testing
 
+For release packaging and Podman CI testing, see [releases.md](releases.md).
+
 ## Layout
 
 | Path | What it does |

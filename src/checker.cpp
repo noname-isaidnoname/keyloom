@@ -25,6 +25,7 @@ const std::vector<OptionRule>& option_rules() {
     static const std::vector<OptionRule> rules = {
         {"input", {"auto", "evdev"}, false},
         {"output", {"auto", "ydotool", "uinput"}, false},
+        {"compositor", {"auto", "x11", "wayland"}, false},
         {"panic", {}, false},
         {"screen", {}, false},
         {"allow_launch", {}, true},

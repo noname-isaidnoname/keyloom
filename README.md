@@ -22,23 +22,22 @@ use `APPIMAGE_EXTRACT_AND_RUN=1 ./keyloom-*.AppImage --version`.
 
 Release binaries are built on Ubuntu 24.04 (glibc 2.39 baseline); older systems
 may need a source build. Packages do not install input permissions or optional
-desktop tools. See [build and install](docs/build-and-install.md) and
-[release and container testing](docs/releases.md).
+desktop tools; see the setup and permissions instructions below.
 
 ### Build from source
 
-You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, and X11/XCB/libpng development headers.
+You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, and X11/XCB/libpng development headers. GTK3 and Wayland development headers enable native Wayland panels; without them, panels use X11/Xwayland.
 
 Debian/Ubuntu:
 
 ```bash
-sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev
+sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
 ```
 
 Arch:
 
 ```bash
-sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng
+sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland
 ```
 
 Build and install:
@@ -48,13 +47,13 @@ Build and install:
 PREFIX="$HOME/.local" ./scripts/install.sh        # install into a writable prefix
 ```
 
-`scripts/install.sh` checks dependencies, builds with the `release` preset, and runs `cmake --install`. It never uses `sudo`.
+`scripts/install.sh` builds and installs Keyloom. It never uses `sudo`.
 
 On Arch-based distributions, you can build and install a native package:
 
 ```bash
 cd packaging/arch
-makepkg -si   # builds and installs keyloom (add KEYLOOM_BUILD_TESTS=ON to run the test suite)
+makepkg -si   # builds and installs keyloom
 ```
 
 ## Quick start
@@ -121,6 +120,20 @@ loom "two-spots" {
 Named mouse holds are reference-counted: if A and D overlap, the left button stays held until both holds are released.
 
 ## Language overview
+
+`option compositor = "auto"` (the default, also used when omitted) chooses
+native Wayland panels when a Wayland session and native support are available,
+otherwise X11/Xwayland. Set `"wayland"` to require a native Wayland session,
+or `"x11"` to require an accessible X11/Xwayland display. These choices affect
+persistent `gui` panels, not evdev input or uinput output. The separate
+`--get-mouse-pos` picker still needs X11/Xwayland. Wayland does not provide a
+portable global window-query API; window-query helpers may return empty values.
+Compositor window placement and always-on-top behavior are controlled by the
+Wayland compositor and may differ from X11.
+When `WAYLAND_SOCKET` is supplied, native panels also require a named
+`WAYLAND_DISPLAY`.
+When screen detection cannot determine the size on Wayland, set
+`option screen = "WIDTHxHEIGHT"` explicitly for coordinate-based actions.
 
 ```loom
 loom "sample" {
@@ -252,44 +265,9 @@ Both output backends need `/dev/uinput` access. Pointer motion, scrolling, and k
 - `uinput` creates an absolute pointer plus keys/buttons/relative axes. `ydotool` is preferred for non-US layouts and Unicode text.
 - `consume key NAME` grabs the physical keyboard and replays non-consumed events through a virtual passthrough device; the panic key is never consumed.
 
-## Development
-
-```bash
-make            # configure, build (Release), and run the test suite
-make build      # build Release only
-make test       # run tests (ctest --preset release)
-make debug      # Debug preset
-make clean      # delete the build directory
-```
-
-Or with CMake directly:
-
-```bash
-cmake --preset release
-cmake --build build/release
-ctest --preset release
-```
-
-The `sanitize` preset builds the whole project with the address and undefined
-behaviour sanitizers and runs the suite under them:
-
-```bash
-cmake --preset sanitize
-cmake --build build/sanitize
-ctest --preset sanitize
-```
-
-Release builds enable `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3` and
-`-fPIE`; turn them off with `-DKEYLOOM_HARDEN=OFF`.
-
-Architecture: `src/lexer.cpp` → `src/parser.cpp` → `src/checker.cpp` → `src/runtime.cpp`. The runtime is split by concern into `src/runtime.cpp` (statements and expressions), `src/runtime_input.cpp` (devices), `src/runtime_output.cpp` (output and holds) and `src/runtime_gui.cpp` (panels). Output drivers implement `OutputBackend` (`src/backends.hpp`); devices/timers/dispatch run on one epoll scheduler (`src/scheduler.cpp`). See `docs/architecture.md` for the full module map.
-
 ## Contributing
 
-- Keep changes consistent with surrounding style and patterns.
-- Run the full test suite after touching lexer, parser, checker, runtime, scheduler, input, uinput, or backends.
-- When user-visible behavior changes, update `README.md` and `src/docs.cpp` (`keyloom --docs` / `api_reference()`) together.
-- See `AGENTS.md` for agent guidance, and `docs/` for architecture, build, testing, benchmark, implementation traps, and contributing documentation.
+See the [contributing guide](docs/contributing.md).
 
 ## License
 

@@ -25,6 +25,7 @@ and `#` comments.
 | --- | --- |
 | `input` | `auto`, `evdev` (currently informational) |
 | `output` | `auto`, `ydotool`, `uinput` |
+| `compositor` | `auto` (default), `x11`, `wayland` — selects panel backend |
 | `panic` | key name or `"none"` |
 | `screen` | `auto` or `WIDTHxHEIGHT` |
 | `allow_launch` | boolean |

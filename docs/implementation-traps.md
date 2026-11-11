@@ -197,6 +197,13 @@ panic key is unreachable. The checker warns about that.
 
 ## GUI and picker
 
+- Native Wayland panels run GTK3 in an isolated helper process per panel. GTK
+  exits on a broken Wayland connection, so it must not run in the automation
+  process: the socket EOF instead stops the scheduler and releases holds. The
+  child closes inherited input/output descriptors and exits with its parent.
+  The helper drains GTK in bounded batches; the scheduler waits on its socket.
+  `auto` prefers native Wayland in a Wayland session and falls back to X11;
+  explicit selections never fall back.
 - `GuiHost` uses XCB rather than Xlib. libX11 treats `_XIOError` as fatal and a
   preflight `poll` cannot protect an Xlib call against a later disconnect, so
   the panel uses explicit connection error inspection and no process-wide X

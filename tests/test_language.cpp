@@ -152,6 +152,16 @@ TEST_CASE(static_check_reports_success_without_warnings) {
     CHECK_TRUE(has_message_containing(diagnostics, "Script syntax and static checks passed"));
 }
 
+TEST_CASE(compositor_option_accepts_auto_x11_and_wayland) {
+    for (const std::string value : {"auto", "x11", "wayland"}) {
+        const auto script = parse("loom \"test\" { option compositor = \"" + value +
+                                  "\"\n when app starts { log \"ok\" } }");
+        CHECK_TRUE(!has_error(check_script(script)));
+    }
+    const auto invalid = parse("loom \"test\" { option compositor = \"invalid\"\n when app starts { log \"ok\" } }");
+    CHECK_TRUE(has_error(check_script(invalid)));
+}
+
 TEST_CASE(static_check_rejects_unknown_options_and_values) {
     const Script script = parse(R"LOOM(
 loom "bad-options" {

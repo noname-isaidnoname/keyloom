@@ -46,6 +46,8 @@ cmake --build build/release -j$(nproc)
 The release and sanitizer CTest presets print failing test output. GitHub CI
 installs Xvfb, xdotool and ImageMagick to exercise the headless GUI and picker tests;
 device-dependent tests can still skip on hosted runners without `/dev/uinput`.
+Native Wayland integration starts an isolated headless Weston compositor when
+Weston and the optional GTK3/wayland-client build dependencies are available.
 
 ### CTest tests
 
@@ -56,6 +58,7 @@ device-dependent tests can still skip on hosted runners without `/dev/uinput`.
 | `picker_integration` | `--get-mouse-pos` on a private X server, 24-bit | 77 |
 | `picker_integration_16` | Same, 16-bit (only when Xvfb is found) | 77 |
 | `gui_integration` | GUI panels, layout switches, close/destroy/server-loss | 77 |
+| `wayland_integration` | Native panels and compositor selection on headless Weston | 77 |
 | `uinput_fault_integration` | ioctl failure at every named `UInputDevice` setup step | 77 |
 
 Exit code 77 means "skipped" (missing X server, xdotool, screenshot tool,

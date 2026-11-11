@@ -80,7 +80,10 @@ GuiHost::~GuiHost() {
     }
 }
 
-std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel) {
+std::unique_ptr<GuiHost> create_wayland_gui(const GuiPanel& panel);
+
+std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel, const std::string& compositor) {
+    if (compositor == "wayland") return create_wayland_gui(panel);
     auto host = std::unique_ptr<GuiHost>(new GuiHost(panel));
     try {
         host->connection_ = std::make_unique<XcbConnection>();

@@ -520,6 +520,7 @@ TEST_CASE(gui_initialization_failure_cleans_backend_and_preserves_primary_error)
     ::setenv("DISPLAY", "invalid-keyloom-display", 1);
     Runtime runtime(parse(R"LOOM(
 loom "startup-failure" {
+    option compositor = "x11"
     gui "panel" { label "hello" }
     when app starts { log "ready" }
 }
@@ -540,7 +541,7 @@ loom "startup-failure" {
     } catch (const std::exception& error) {
         message = error.what();
     }
-    CHECK_TRUE(message.find("needs an X11 display") != std::string::npos);
+    CHECK_TRUE(message.find("requires an accessible X11") != std::string::npos);
 }
 
 TEST_CASE(cancellation_during_cleanup_still_drains_before_closing_backend) {

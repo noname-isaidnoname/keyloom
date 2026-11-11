@@ -269,6 +269,7 @@ Options
 
     option input = "evdev"       # currently evdev; `auto` is an alias
     option output = "auto"        # auto, ydotool, or uinput
+    option compositor = "auto"    # auto (default), x11, or native wayland panels
     option screen = "auto"        # or an explicit string, e.g. "2560x1440"
     option panic = "PAUSE"        # stop key; set "none" to disable
     option allow_launch = false   # launch command is denied unless true
@@ -305,6 +306,9 @@ Safety and runtime behavior
   releasing held keys. Timers, app-start blocks, panic and `remap` declarations
   are not suspended. Use `call set_hotkey_enabled("F8", false)` for one binding.
 * `--check` parses and statically checks a script without opening input devices.
+* Panels use native Wayland in a Wayland session when built with GTK3 and
+  wayland-client; otherwise auto uses X11/Xwayland. Explicit "wayland" and
+  "x11" require their respective displays. The standalone picker still uses X11.
 * `--dry-run` logs actions instead of injecting them, but still listens for keys.
 * `--get-mouse-pos` captures the desktop with spectacle, grim,
   gnome-screenshot, scrot, or ImageMagick import, then shows that still image
@@ -394,6 +398,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& reference()
           "gui_confirm(QUESTION [, TITLE])", "suspend_hotkeys(BOOL)", "hotkeys_suspended()",
           "set_hotkey_enabled(NAME, BOOL)", "hotkey_enabled(NAME)"}},
         {"input", {"consume key NAME (release held inputs before startup)"}},
+        {"options", {"option compositor = \"auto\" | \"x11\" | \"wayland\" (panel backend)"}},
         {"desktop",
          {"scroll X, Y", "clip write EXPR", "clip read into VARIABLE", "notify EXPR",
           "launch EXPR (allow_launch=true required)"}},

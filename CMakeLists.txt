@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(keyloom
-    VERSION 0.4.2
+    VERSION 0.5.0
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -14,6 +14,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 option(KEYLOOM_USE_MOLD "Link with mold when the linker is installed" ON)
 option(KEYLOOM_SANITIZE "Build with the address and undefined behaviour sanitizers" OFF)
 option(KEYLOOM_HARDEN "Enable the usual release hardening flags" ON)
+option(KEYLOOM_WAYLAND "Enable native Wayland panels when GTK3 and wayland-client are available" ON)
 
 # ccache: honour an explicit -DCMAKE_CXX_COMPILER_LAUNCHER, otherwise use ccache
 # when it exists. CMakePresets.json sets the same thing for preset builds.
@@ -38,6 +39,10 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(X11 REQUIRED IMPORTED_TARGET x11)
 pkg_check_modules(XCB REQUIRED IMPORTED_TARGET xcb)
 pkg_check_modules(LIBPNG REQUIRED IMPORTED_TARGET libpng)
+if(KEYLOOM_WAYLAND)
+    pkg_check_modules(GTK3 QUIET IMPORTED_TARGET gtk+-wayland-3.0)
+    pkg_check_modules(WAYLAND QUIET IMPORTED_TARGET wayland-client)
+endif()
 
 add_library(keyloom_options INTERFACE)
 target_compile_options(keyloom_options INTERFACE
@@ -82,16 +87,27 @@ add_library(keyloom_core STATIC
     src/picker_xcb.cpp
     src/picker_image.cpp
     src/gui.cpp
+    src/gui_wayland.cpp
     src/xcb_connection.cpp
     src/cli.cpp)
 target_include_directories(keyloom_core PUBLIC src)
 target_link_libraries(keyloom_core PUBLIC keyloom_options PkgConfig::X11 PkgConfig::XCB PkgConfig::LIBPNG)
+if(KEYLOOM_WAYLAND AND GTK3_FOUND AND WAYLAND_FOUND)
+    target_link_libraries(keyloom_core PUBLIC PkgConfig::GTK3 PkgConfig::WAYLAND)
+    target_compile_definitions(keyloom_core PRIVATE KEYLOOM_WAYLAND_GUI=1)
+    message(STATUS "keyloom: native Wayland panels enabled (GTK3)")
+elseif(NOT KEYLOOM_WAYLAND)
+    message(STATUS "keyloom: native Wayland panels disabled")
+else()
+    message(STATUS "keyloom: native Wayland panels unavailable (GTK3/wayland-client development files missing)")
+endif()
 target_compile_definitions(keyloom_core PUBLIC KEYLOOM_VERSION="${PROJECT_VERSION}")
 
 add_executable(keyloom src/main.cpp)
 target_link_libraries(keyloom PRIVATE keyloom_core)
 
 if(BUILD_TESTING)
+    target_compile_definitions(keyloom_core PRIVATE KEYLOOM_WAYLAND_TEST_HOOKS=1)
     # The test harness and the probes are not performance critical: the code
     # they exercise lives in keyloom_core, which keeps the release optimisation
     # level. Building the harness itself at -O1 takes a noticeable slice off a
@@ -130,6 +146,17 @@ if(BUILD_TESTING)
     target_link_libraries(gui_mapping_runtime_probe PRIVATE keyloom_core keyloom_test_options)
     add_executable(gui_startup_probe tests/gui_startup_probe.cpp)
     target_link_libraries(gui_startup_probe PRIVATE keyloom_core keyloom_test_options)
+    if(KEYLOOM_WAYLAND AND GTK3_FOUND AND WAYLAND_FOUND)
+        add_executable(wayland_gui_probe tests/wayland_gui_probe.cpp)
+        target_link_libraries(wayland_gui_probe PRIVATE keyloom_core keyloom_test_options)
+        add_test(NAME wayland_integration
+            COMMAND ${CMAKE_COMMAND} -E env
+                KEYLOOM_BIN=$<TARGET_FILE:keyloom>
+                KEYLOOM_WAYLAND_PROBE=$<TARGET_FILE:wayland_gui_probe>
+                KEYLOOM_TEST_HOOKS=1
+                bash ${CMAKE_SOURCE_DIR}/tests/wayland_integration.sh)
+        set_tests_properties(wayland_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 45)
+    endif()
     # A probe for a recoverable alternative to Xlib's fatal I/O behavior.
     add_executable(xcb_disconnect_probe tests/xcb_disconnect_probe.cpp)
     target_link_libraries(xcb_disconnect_probe PRIVATE keyloom_core keyloom_test_options)
@@ -148,6 +175,7 @@ if(BUILD_TESTING)
             KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
             KEYLOOM_PICKER_LIFECYCLE=$<TARGET_FILE:picker_lifecycle>
             KEYLOOM_PICKER_UPLOAD_PROBE=$<TARGET_FILE:picker_upload_probe>
+            XDG_SESSION_TYPE=x11
             PICKER_TEST_DISPLAY_NUMBERS=91,92,93,94,95
             bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
     set_tests_properties(picker_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 120 RESOURCE_LOCK picker_display)
@@ -159,6 +187,7 @@ if(BUILD_TESTING)
                 KEYLOOM_PICKER_EVENT=$<TARGET_FILE:picker_event>
                 KEYLOOM_PICKER_LIFECYCLE=$<TARGET_FILE:picker_lifecycle>
                 KEYLOOM_PICKER_UPLOAD_PROBE=$<TARGET_FILE:picker_upload_probe>
+                XDG_SESSION_TYPE=x11
                 PICKER_TEST_DEPTH=16
                 PICKER_TEST_DISPLAY_NUMBERS=81,82,83,84,85
                 bash ${CMAKE_SOURCE_DIR}/tests/picker_integration.sh)
@@ -172,6 +201,7 @@ if(BUILD_TESTING)
             KEYLOOM_GUI_MAPPING_RUNTIME_PROBE=$<TARGET_FILE:gui_mapping_runtime_probe>
             KEYLOOM_GUI_STARTUP_PROBE=$<TARGET_FILE:gui_startup_probe>
             KEYLOOM_XCB_PROBE=$<TARGET_FILE:xcb_disconnect_probe>
+            XDG_SESSION_TYPE=x11
             bash ${CMAKE_SOURCE_DIR}/tests/gui_integration.sh)
     set_tests_properties(gui_integration PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
 

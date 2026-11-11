@@ -34,6 +34,10 @@ EOF
     exit 2
 fi
 
+if ! pkg-config --exists gtk+-wayland-3.0 wayland-client; then
+    echo 'Note: GTK3/wayland-client development files are missing; native Wayland panels will be unavailable.' >&2
+fi
+
 if [[ ! -d "$PREFIX" ]] && ! mkdir -p "$PREFIX" 2>/dev/null; then
     printf 'Prefix %s does not exist and could not be created.\n' "$PREFIX" >&2
     printf 'Install into your own prefix instead:\n    PREFIX="$HOME/.local" ./scripts/install.sh\n' >&2

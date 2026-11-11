@@ -12,9 +12,12 @@
 
 namespace keyloom {
 
-/// A persistent, native X11 panel built from the declarative widgets in a
-/// `gui "title" { ... }` block. GuiHost owns the connection for the panel; it
-/// does not provide a general toolkit or style system.
+/// Check an explicitly requested compositor before starting a script.
+void validate_compositor(const std::string& compositor);
+std::string resolve_compositor();
+
+/// A persistent X11 or native Wayland panel built from a `gui` block.
+/// The default implementation owns an XCB connection; Wayland overrides it.
 class GuiHost {
 public:
     enum class EventKind { Click, Close };
@@ -27,27 +30,30 @@ public:
 
     GuiHost(const GuiHost&) = delete;
     GuiHost& operator=(const GuiHost&) = delete;
-    ~GuiHost();
+    virtual ~GuiHost();
 
-    static std::unique_ptr<GuiHost> create(const GuiPanel& panel);
+    static std::unique_ptr<GuiHost> create(const GuiPanel& panel, const std::string& compositor = "x11");
 
-    int fd() const;
+    virtual int fd() const;
     const std::string& title() const { return panel_.title; }
-    bool is_closed() const { return closed_; }
+    virtual bool is_closed() const { return closed_; }
 
     void set_event_handler(std::function<void(const Event&)> handler) { event_handler_ = std::move(handler); }
 
-    /// Read all pending X events, redraw dirty widgets and dispatch semantic
-    /// click/close notifications. Must be called when the X connection is
-    /// readable; may also be called once after creation.
-    void process_events();
+    /// Drain available UI events and dispatch semantic click/close notifications.
+    /// XCB and the isolated Wayland helper are driven by their readable fds.
+    virtual void process_events();
 
-    void close();
-    bool has_widget(const std::string& widget_id) const;
-    std::string value(const std::string& widget_id) const;
-    void set_value(const std::string& widget_id, const std::string& value);
-    void set_text(const std::string& widget_id, const std::string& text);
-    void set_visible(bool visible);
+    virtual void close();
+    virtual bool has_widget(const std::string& widget_id) const;
+    virtual std::string value(const std::string& widget_id) const;
+    virtual void set_value(const std::string& widget_id, const std::string& value);
+    virtual void set_text(const std::string& widget_id, const std::string& text);
+    virtual void set_visible(bool visible);
+
+protected:
+    explicit GuiHost(const GuiPanel& panel);
+    void emit_event(const Event& event) { if (event_handler_) event_handler_(event); }
 
 private:
     struct Rect {
@@ -56,8 +62,6 @@ private:
         int width = 0;
         int height = 0;
     };
-
-    explicit GuiHost(const GuiPanel& panel);
 
     void refresh_keyboard_mapping();
     void layout();

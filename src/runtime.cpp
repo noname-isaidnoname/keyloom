@@ -501,6 +501,15 @@ Task Runtime::run_body() {
         if (::access("/proc", F_OK) != 0) {
             throw RuntimeErrorKeyloom("Keyloom's live runtime is Linux-only.");
         }
+        const Value* compositor_option = script_.option("compositor");
+        std::string compositor = compositor_option ? compositor_option->to_string() : "auto";
+        const bool automatic_compositor = compositor == "auto";
+        if (compositor != "auto") validate_compositor(compositor);
+        else if (!script_.panels.empty()) compositor = resolve_compositor();
+        // GTK may create helper threads during panel startup. Block signals
+        // first so those threads inherit the mask and signalfd handles stop.
+        signals = std::make_shared<SignalScope>();
+        spawn_background(signal_loop(signals->fd, signals));
         if (!backend_) backend_ = select_backend();
         running_ = true;
 
@@ -510,14 +519,24 @@ Task Runtime::run_body() {
         consumed_keys_ = collect_consumed_keys();
 
         for (const auto& panel : script_.panels) {
-            auto host = GuiHost::create(panel);
+            std::unique_ptr<GuiHost> host;
+            try {
+                host = GuiHost::create(panel, compositor);
+            } catch (const RuntimeErrorKeyloom& error) {
+                if (!automatic_compositor || compositor != "wayland" || !gui_hosts_.empty()) throw;
+                const std::string native_error = error.what();
+                compositor = "x11";
+                try {
+                    host = GuiHost::create(panel, compositor);
+                } catch (const RuntimeErrorKeyloom& fallback_error) {
+                    throw RuntimeErrorKeyloom("Could not start a native Wayland panel (" + native_error +
+                                               ") or an X11 fallback (" + fallback_error.what() + ").");
+                }
+            }
             host->set_event_handler([this](const GuiHost::Event& event) { dispatch_gui_event(event); });
             gui_hosts_.push_back(std::move(host));
         }
         for (auto& host : gui_hosts_) spawn_background(gui_loop(host.get()));
-
-        signals = std::make_shared<SignalScope>();
-        spawn_background(signal_loop(signals->fd, signals));
 
         bool has_key_events = !script_.remaps.empty() || !consumed_keys_.empty();
         bool has_mouse_events = false;

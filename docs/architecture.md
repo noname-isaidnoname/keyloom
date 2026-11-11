@@ -4,6 +4,9 @@ Keyloom is a Linux-first desktop automation language and its native C++20
 runtime. A `.loom` file is parsed, statically checked, and then executed on a
 single epoll-based event loop. There is no interpreter in the hot path: the
 runtime is a set of coroutines (`Task`) driven by one `Scheduler`.
+Native Wayland panels run GTK in isolated helper processes; their messages are
+handled by the same scheduler so a GTK/display failure cannot terminate the
+automation process before its output cleanup.
 
 ```
 loom file → lexer → parser → checker → runtime
@@ -34,6 +37,7 @@ loom file → lexer → parser → checker → runtime
 | `src/mousepos.cpp`, `src/mousepos.hpp` | screenshot-overlay coordinate picker (`--get-mouse-pos`) |
 | `src/picker_xcb.cpp`, `src/picker_image.cpp` | the picker's XCB transport and screenshot pixel handling |
 | `src/gui.cpp`, `src/gui.hpp` | `GuiHost`: X11/Xwayland panels, keyboard mapping, event dispatch |
+| `src/gui_wayland.cpp` | Isolated GTK3 Wayland panel helpers and compositor selection |
 | `src/xcb_connection.cpp`, `src/xcb_connection.hpp` | RAII XCB transport with explicit error inspection |
 | `src/unique_fd.hpp` | RAII wrapper for raw file descriptors |
 | `src/cli.cpp`, `src/main.cpp` | `--init`, `--check`, `--run`, `--docs`, `--devices`, `--screen`, `--get-mouse-pos`, `--doctor`, `--list-api`, `--version` |

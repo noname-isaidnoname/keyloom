@@ -10,17 +10,18 @@ For release downloads, packaging scripts, and container-based verification see
 - Ninja
 - pkg-config
 - X11, XCB and libpng development headers
+- Optional for native Wayland panels: GTK3 and wayland-client development headers
 
 Debian/Ubuntu:
 
 ```bash
-sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev
+sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
 ```
 
 Arch:
 
 ```bash
-sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng
+sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland
 ```
 
 Runtime (not needed to build): `ydotool`/`ydotoold`, or a writable
@@ -72,6 +73,7 @@ Variables: `JOBS=8`, `PREFIX=/usr/local`, `BUILD=build/release`.
 | `KEYLOOM_USE_MOLD` | ON | Link with `mold` when it is installed |
 | `KEYLOOM_SANITIZE` | OFF | Build with `-fsanitize=address,undefined` |
 | `KEYLOOM_HARDEN` | ON | `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3`, `-fPIE` |
+| `KEYLOOM_WAYLAND` | ON | Build native Wayland panels if GTK3 and wayland-client are available |
 
 `KEYLOOM_SANITIZE` and `KEYLOOM_HARDEN` are mutually exclusive in practice: the
 sanitize preset turns hardening off because the sanitizers replace the
@@ -79,6 +81,11 @@ allocator and libc's own checks add nothing.
 
 ccache is used automatically when `CMAKE_CXX_COMPILER_LAUNCHER` is not set
 explicitly and `ccache` is on `PATH`.
+
+CMake detects GTK3 and wayland-client at configure time. Without their
+development files the X11 backend still builds, while explicit Wayland panels
+fail with an installation hint. Install the headers and reconfigure to enable
+them. Official releases build with both dependencies.
 
 ## Install
 

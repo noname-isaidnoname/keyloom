@@ -7,7 +7,8 @@ Set `KEYLOOM_PACKAGE_OUT`, `KEYLOOM_PACKAGE_BUILD` and `JOBS` to override the
 output, build directory and parallelism. The build directory must be writable.
 Use a clean checkout: `source` archives **HEAD**, not uncommitted changes, while
 binary packages build the working tree. Install CMake, Ninja, a C++20 compiler,
-pkg-config and the X11/XCB/libpng headers. DEB requires dpkg tools and `file`; RPM requires
+pkg-config and the X11/XCB/libpng headers; install GTK3/wayland-client headers to
+include native Wayland panels. DEB requires dpkg tools and `file`; RPM requires
 rpmbuild; AppImage requires `appimagetool`, `file`, `mksquashfs` (squashfs-tools) and
 `rsvg-convert` (librsvg2-bin on Debian/Ubuntu).
 Set `APPIMAGE_RUNTIME` to a local type-2 runtime to prevent appimagetool from
@@ -18,7 +19,7 @@ desktop programs as the native executable. Native packages use dependency
 metadata; they deliberately do not set a system-wide file association.
 
 Official binaries target x86-64 and are built on Ubuntu 24.04, so require glibc
-2.39 or newer. The binary tarball needs X11, XCB, libpng and the C++ runtime
+2.39 or newer. The binary tarball needs X11, XCB, libpng, GTK3, wayland-client and the C++ runtime
 installed separately. Other architectures and older systems should build from
 source. SHA256SUMS detects corruption, not malicious replacements; no signing
 or independent provenance verification is currently provided.

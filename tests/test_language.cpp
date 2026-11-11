@@ -143,6 +143,12 @@ TEST_CASE(static_check_accepts_the_spot_example) {
     const Script script = parse(read_file(path), path);
     const auto diagnostics = check_script(script);
     CHECK_TRUE(!has_error(diagnostics));
+}
+
+TEST_CASE(static_check_reports_success_without_warnings) {
+    const Script script = parse("loom \"clean\" { when app starts { log \"ready\" } }");
+    const auto diagnostics = check_script(script);
+    CHECK_TRUE(!has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Script syntax and static checks passed"));
 }
 

@@ -20,7 +20,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache libx11-dev libxcb1-dev libpng-dev xvfb xauth
+          sudo apt-get install -y ninja-build ccache libx11-dev libxcb1-dev libpng-dev xvfb xauth xdotool scrot
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ccache

@@ -50,16 +50,16 @@
         {
             "name": "release",
             "configurePreset": "release",
+            "output": { "outputOnFailure": true },
             "execution": {
-                "output": { "outputOnFailure": true },
                 "jobs": 4
             }
         },
         {
             "name": "sanitize",
             "configurePreset": "sanitize",
+            "output": { "outputOnFailure": true },
             "execution": {
-                "output": { "outputOnFailure": true },
                 "jobs": 4
             },
             "environment": {

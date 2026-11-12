@@ -9,7 +9,7 @@
 #include "subprocess.hpp"
 #include "uinput.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 /// Everything the runtime needs from an output driver.
 class OutputBackend {
@@ -121,7 +121,7 @@ public:
     virtual void close() = 0;
 };
 
-/// Replay physical input through uinput, minus the keys Keyloom consumes.
+/// Replay physical input through uinput, minus the keys Loomwright consumes.
 class PassthroughDevice : public EventSink {
 public:
     explicit PassthroughDevice(const DeviceCapabilities& capabilities,
@@ -142,4 +142,4 @@ private:
 
 std::unique_ptr<OutputBackend> choose_backend(const std::string& name, int width, int height);
 
-}  // namespace keyloom
+}  // namespace loomwright

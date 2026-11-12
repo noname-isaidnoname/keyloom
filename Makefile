@@ -1,4 +1,4 @@
-# Keyloom — one-word targets for the build, like the sibling projects.
+# Loomwright — one-word targets for the build, like the sibling projects.
 #
 #   make             build (Release) and run the test suite
 #   make build       build Release only, no test suite
@@ -42,7 +42,7 @@ clean:
 
 help:
 	@printf '%s\n' \
-	  'Keyloom — make targets' \
+	  'Loomwright — make targets' \
 	  '' \
 	  '  make              build (Release) and run the test suite' \
 	  '  make build        configure and build Release only, no test suite' \

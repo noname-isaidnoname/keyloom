@@ -39,12 +39,12 @@ Window find_window(Display* display, const char* title) {
 
 int main() {
     XSetErrorHandler(record_other_error);
-    std::unique_ptr<keyloom::GuiHost> host;
+    std::unique_ptr<loomwright::GuiHost> host;
     {
-        keyloom::GuiPanel panel;
+        loomwright::GuiPanel panel;
         panel.title = "Owned panel";
-        panel.widgets.push_back({keyloom::GuiWidget::Kind::Input, "name", "original", 1});
-        host = keyloom::GuiHost::create(panel);
+        panel.widgets.push_back({loomwright::GuiWidget::Kind::Input, "name", "original", 1});
+        host = loomwright::GuiHost::create(panel);
         panel.title = "changed";
         panel.widgets.clear();
         if (host->title() != "Owned panel" || !host->has_widget("name")) {
@@ -61,8 +61,8 @@ int main() {
     std::puts("ok   GUI owns its panel after caller destruction");
 
     int closes = 0;
-    host->set_event_handler([&](const keyloom::GuiHost::Event& event) {
-        if (event.kind == keyloom::GuiHost::EventKind::Close) ++closes;
+    host->set_event_handler([&](const loomwright::GuiHost::Event& event) {
+        if (event.kind == loomwright::GuiHost::EventKind::Close) ++closes;
     });
     Display* other = XOpenDisplay(nullptr);
     if (other == nullptr) return 1;

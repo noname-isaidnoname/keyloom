@@ -19,15 +19,15 @@ int main(int argc, char** argv) {
         std::cout << "skip: /dev/uinput not writable\n";
         return 77;
     }
-    std::string phys = config == "phys" ? "keyloom/test/fault/phys" : "keyloom/test/fault";
+    std::string phys = config == "phys" ? "loomwright/test/fault/phys" : "loomwright/test/fault";
     std::vector<int> relative = config == "rel" ? std::vector<int>{REL_X} : std::vector<int>{};
-    std::vector<keyloom::AbsAxis> absolute =
-        config == "abs" ? std::vector<keyloom::AbsAxis>{{ABS_X, 0, 1919, 0, 0, 0}} : std::vector<keyloom::AbsAxis>{};
+    std::vector<loomwright::AbsAxis> absolute =
+        config == "abs" ? std::vector<loomwright::AbsAxis>{{ABS_X, 0, 1919, 0, 0, 0}} : std::vector<loomwright::AbsAxis>{};
     try {
-        keyloom::UInputDevice device("Keyloom fault probe", phys, {KEY_A}, relative, absolute);
+        loomwright::UInputDevice device("Loomwright fault probe", phys, {KEY_A}, relative, absolute);
         std::cerr << "expected setup failure at " << expected << " but device was created\n";
         return 1;
-    } catch (const keyloom::BackendError& error) {
+    } catch (const loomwright::BackendError& error) {
         const std::string msg = error.what();
         if (msg.find(expected) == std::string::npos) {
             std::cerr << "error message missing '" << expected << "': " << msg << "\n";

@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-# Build and install the keyloom binary.
+# Build and install the loomwright binary.
 #
 #   ./scripts/install.sh                 # build (release) and install
 #   PREFIX="$HOME/.local" ./scripts/install.sh
@@ -50,21 +50,21 @@ if [[ ! -w "$PREFIX" ]]; then
 fi
 
 echo "Configuring (release)..."
-# Extra CMake arguments can be passed in KEYLOOM_CMAKE_ARGS, for example
-# KEYLOOM_CMAKE_ARGS=-DKEYLOOM_DESKTOP_INTEGRATION=OFF to install the binary
+# Extra CMake arguments can be passed in LOOMWRIGHT_CMAKE_ARGS, for example
+# LOOMWRIGHT_CMAKE_ARGS=-DLOOMWRIGHT_DESKTOP_INTEGRATION=OFF to install the binary
 # without the desktop entry, icon, MIME type and terminal launcher.
 # shellcheck disable=SC2086
-cmake --preset release -DBUILD_TESTING=OFF ${KEYLOOM_CMAKE_ARGS:-} >/dev/null
+cmake --preset release -DBUILD_TESTING=OFF ${LOOMWRIGHT_CMAKE_ARGS:-} >/dev/null
 echo "Building..."
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 echo "Installing into $PREFIX..."
 cmake --install "$BUILD_DIR" --prefix "$PREFIX"
 
 bin_dir="$PREFIX/bin"
-printf '\nKeyloom installed to %s/keyloom\n' "$bin_dir"
+printf '\nLoomwright installed to %s/loomwright\n' "$bin_dir"
 case ":$PATH:" in
     *":$bin_dir:"*) ;;
     *) printf 'Note: %s is not on your PATH.\n' "$bin_dir" ;;
 esac
-printf 'Try: keyloom --check examples/two_spots.loom\n'
-printf 'Run: keyloom --run examples/two_spots.loom\n'
+printf 'Try: loomwright --check examples/two_spots.loom\n'
+printf 'Run: loomwright --run examples/two_spots.loom\n'

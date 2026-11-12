@@ -1,4 +1,4 @@
-# A tour of Keyloom's core actions and a few AutoHotkey-style features.
+# A tour of Loomwright's core actions and a few AutoHotkey-style features.
 loom "basic-demo" {
     option output = "auto"
     option panic = "PAUSE"
@@ -13,11 +13,11 @@ loom "basic-demo" {
     }
 
     when app starts {
-        log "Keyloom is ready. F8 prints a message."
+        log "Loomwright is ready. F8 prints a message."
     }
 
     when key F8 goes down {
-        notify "F8 reached Keyloom"
+        notify "F8 reached Loomwright"
         log "pressed F8"
     }
 
@@ -42,7 +42,7 @@ loom "basic-demo" {
     }
 
     when key F12 goes down {
-        send "Keyloom{enter}"
+        send "Loomwright{enter}"
     }
 
     # A for loop over a range, with a list of names.

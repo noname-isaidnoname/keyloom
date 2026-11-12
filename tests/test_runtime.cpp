@@ -22,9 +22,9 @@
 #include "subprocess.hpp"
 #include "unique_fd.hpp"
 
-using namespace keyloom;
-using keyloom_test::eval_expression;
-using keyloom_test::RecordingBackend;
+using namespace loomwright;
+using loomwright_test::eval_expression;
+using loomwright_test::RecordingBackend;
 
 
 namespace {
@@ -234,13 +234,13 @@ TEST_CASE(key_holds_are_reference_counted) {
 }
 
 TEST_CASE(held_loop_ticks_on_a_fixed_cadence) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "cadence" {
     when key X stays held every 10ms {
         mouse left tap for 5ms
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<TimedBackend>();
     TimedBackend* raw = backend.get();
@@ -262,13 +262,13 @@ loom "cadence" {
 }
 
 TEST_CASE(cancelling_a_held_tap_unwinds_and_releases_the_key) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "cancel-tap" {
     when key X stays held every 10ms {
         key E tap for 200ms
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -284,7 +284,7 @@ loom "cancel-tap" {
 }
 
 TEST_CASE(two_spots_press_and_release_logic) {
-    const std::string path = std::string(KEYLOOM_SOURCE_DIR) + "/examples/two_spots.loom";
+    const std::string path = std::string(LOOMWRIGHT_SOURCE_DIR) + "/examples/two_spots.loom";
     const Script script = parse(read_file(path), path);
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
@@ -307,13 +307,13 @@ TEST_CASE(two_spots_press_and_release_logic) {
 }
 
 TEST_CASE(consumed_keys_are_script_wide_and_panic_always_passes) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "consume" {
     option panic = "A"
     when key A goes down { consume key A }
     when key D goes down { consume key D }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_panic_key("A");
     const auto consumed = runtime.collect_consumed_keys();
@@ -374,18 +374,18 @@ Value eval_expression_or_fails(const std::string& expression) {
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
     runtime.scheduler().run();
     if (!runtime.runtime_error().empty()) {
-        throw RuntimeErrorKeyloom(runtime.runtime_error());
+        throw RuntimeErrorLoomwright(runtime.runtime_error());
     }
     return runtime.variables().at("result");
 }
 
 TEST_CASE(arbitrary_gui_calls_are_registered_functions) {
-    CHECK_THROWS(eval_expression_or_fails("gui_input()"), RuntimeErrorKeyloom);
-    CHECK_THROWS(eval_expression_or_fails("gui_confirm(1, 2, 3)"), RuntimeErrorKeyloom);
+    CHECK_THROWS(eval_expression_or_fails("gui_input()"), RuntimeErrorLoomwright);
+    CHECK_THROWS(eval_expression_or_fails("gui_confirm(1, 2, 3)"), RuntimeErrorLoomwright);
 }
 
 TEST_CASE(suspend_hotkeys_keeps_the_calling_hotkey_enabled) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "suspend" {
     when key F9 goes down {
         if hotkeys_suspended() {
@@ -398,7 +398,7 @@ loom "suspend" {
         send "F8"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -428,13 +428,13 @@ loom "suspend" {
 }
 
 TEST_CASE(set_hotkey_enabled_affects_only_the_selected_binding) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "toggle-binding" {
     when key F7 goes down { call set_hotkey_enabled("F8", false) }
     when key F6 goes down { call set_hotkey_enabled("F8", true) }
     when key F8 goes down { send "F8" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -457,13 +457,13 @@ loom "toggle-binding" {
 }
 
 TEST_CASE(disabled_hotkeys_do_not_arm_up_bindings) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "disabled-up" {
     when key F7 goes down { call set_hotkey_enabled("F8", false) }
     when key F6 goes down { call set_hotkey_enabled("F8", true) }
     when key F8 goes up { send "F8UP" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -486,12 +486,12 @@ loom "disabled-up" {
 }
 
 TEST_CASE(suspended_hotkeys_do_not_arm_up_bindings) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "suspended-up" {
     when key F9 goes down { call suspend_hotkeys(not hotkeys_suspended()) }
     when key F8 goes up { send "F8UP" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -517,14 +517,14 @@ TEST_CASE(gui_initialization_failure_cleans_backend_and_preserves_primary_error)
     const char* display = std::getenv("DISPLAY");
     const bool had_display = display != nullptr;
     const std::string original = had_display ? display : "";
-    ::setenv("DISPLAY", "invalid-keyloom-display", 1);
-    Runtime runtime(parse(R"LOOM(
+    ::setenv("DISPLAY", "invalid-loomwright-display", 1);
+    Runtime runtime(parse(R"LOOMWRIGHT(
 loom "startup-failure" {
     option compositor = "x11"
     gui "panel" { label "hello" }
     when app starts { log "ready" }
 }
-)LOOM"));
+)LOOMWRIGHT"));
     auto backend = std::make_unique<ThrowCloseBackend>();
     auto* raw = backend.get();
     runtime.set_backend(std::move(backend));
@@ -651,12 +651,12 @@ TEST_CASE(failed_output_releases_remain_tracked_for_retry) {
 }
 
 TEST_CASE(remap_key_holds_and_releases_target) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "remap" {
     remap key Q to SPACE
     when app starts { log "ready" }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.remaps.size(), static_cast<size_t>(1));
     CHECK_EQ(script.remaps.at(0).target, std::string("SPACE"));
 
@@ -674,12 +674,12 @@ loom "remap" {
 }
 
 TEST_CASE(disconnect_releases_remap_after_last_device) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "disconnect" {
     remap key Q to CTRL+SPACE
     when app starts { log "ready" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -696,12 +696,12 @@ loom "disconnect" {
 }
 
 TEST_CASE(evdev_overflow_resynchronizes_remaps_and_passthrough) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "overflow" {
     remap key Q to SPACE
     when key B goes down { key C press }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script);
     auto backend = std::make_unique<RecordingBackend>();
     auto* raw = backend.get();
@@ -735,12 +735,12 @@ TEST_CASE(evdev_overflow_snapshot_failure_stops_runtime) {
 }
 
 TEST_CASE(evdev_overflow_ignores_stale_events_already_in_read_batch) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "overflow-tail" {
     remap key Q to SPACE
     when app starts { log "ready" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script);
     auto backend = std::make_unique<RecordingBackend>();
     auto* raw = backend.get();
@@ -768,15 +768,15 @@ loom "overflow-tail" {
 }
 
 TEST_CASE(remap_only_script_requires_an_accessible_keyboard) {
-    Script script = parse(R"LOOM(
+    Script script = parse(R"LOOMWRIGHT(
 loom "remap-only" {
     remap key Q to SPACE
     when timer every 1s { log "tick" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime::Options options;
     options.dry_run = true;
-    options.input_device = "/nonexistent-keyloom-input-device";
+    options.input_device = "/nonexistent-loomwright-input-device";
     Runtime runtime(script, options);
     runtime.scheduler().spawn(runtime.run());
     runtime.scheduler().run();
@@ -788,12 +788,12 @@ loom "remap-only" {
 }
 
 TEST_CASE(remap_source_is_script_wide_consumed) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "remap-passthrough" {
     remap key Q to SPACE
     when timer every 1s { log "tick" }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     runtime.set_backend(std::move(backend));
@@ -911,12 +911,12 @@ TEST_CASE(passthrough_forgets_only_successfully_flushed_releases) {
 }
 
 TEST_CASE(observed_device_startup_seeds_key_state_without_firing_bindings) {
-    Script script = parse(R"LOOM(
+    Script script = parse(R"LOOMWRIGHT(
 loom "already-held" {
     when key A goes down { key B press }
     when key A goes up { key C press }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script);
     auto backend = std::make_unique<RecordingBackend>();
     auto* raw = backend.get();
@@ -942,7 +942,7 @@ TEST_CASE(idle_grab_rejects_held_keys_and_rolls_back_races) {
     int ungrabs = 0;
     CHECK_THROWS(grab_idle_input([&] { ++snapshots; return std::vector<int>{KEY_A}; },
                                  [] { return PendingInput{}; },
-                                 [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+                                 [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorLoomwright);
     CHECK_EQ(snapshots, 1);
     CHECK_EQ(grabs, 0);
     CHECK_EQ(ungrabs, 0);
@@ -967,16 +967,16 @@ TEST_CASE(idle_grab_rejects_held_keys_and_rolls_back_races) {
         ++grabs;
         // A complete transition is invisible to a held-key snapshot.
         queue = {{EV_KEY, KEY_A, 1}, {EV_KEY, KEY_A, 0}};
-    }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+    }, [&] { ++ungrabs; }), RuntimeErrorLoomwright);
     CHECK_EQ(snapshots, 2);
     CHECK_EQ(drains, 2);
     CHECK_EQ(grabs, 1);
     CHECK_EQ(ungrabs, 1);
     drains = 0;
     CHECK_THROWS(grab_idle_input([] { return std::vector<int>{}; }, [&] {
-        if (++drains == 2) throw RuntimeErrorKeyloom("queue read failed");
+        if (++drains == 2) throw RuntimeErrorLoomwright("queue read failed");
         return PendingInput{};
-    }, [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorKeyloom);
+    }, [&] { ++grabs; }, [&] { ++ungrabs; }), RuntimeErrorLoomwright);
     CHECK_EQ(grabs, 2);
     CHECK_EQ(ungrabs, 2);
 }
@@ -1001,7 +1001,7 @@ TEST_CASE(split_grab_handoff_aborts_and_identifies_the_possible_stuck_key) {
             desktop_thinks_down = true;
             grabbed = true;
         }, [&] { grabbed = false; });
-    } catch (const RuntimeErrorKeyloom& error) {
+    } catch (const RuntimeErrorLoomwright& error) {
         error_message = error.what();
     }
     CHECK_EQ(snapshots, 2);
@@ -1067,13 +1067,13 @@ TEST_CASE(chord_hold_rolls_back_after_partial_backend_failure) {
             RecordingBackend::key(name, down);
         }
     };
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chord-rollback" {
     when key F8 goes down {
         key CTRL+SHIFT tap
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<FailOnKeyPress>();
     backend->fail_on = "LEFTSHIFT";
@@ -1192,13 +1192,13 @@ TEST_CASE(mouse_buttons_map_to_distinct_runtime_names) {
 }
 
 TEST_CASE(mouse_button_edges_press_and_release_the_modifier) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "ctrl-click" {
     when mouse left goes down { key CTRL press }
     when mouse left goes up { key CTRL free }
 }
 
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -1214,11 +1214,11 @@ loom "ctrl-click" {
 }
 
 TEST_CASE(release_only_binding_runs_once_per_physical_press) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "release" {
     when key A goes up { key B press }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -1235,11 +1235,11 @@ loom "release" {
 }
 
 TEST_CASE(mouse_held_repeats_until_the_button_is_released) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "mouse-held" {
     when mouse left stays held every 10ms { key E tap for 5ms }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -1256,12 +1256,12 @@ loom "mouse-held" {
 }
 
 TEST_CASE(mouse_button_and_arrow_key_bindings_do_not_collide) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "collision" {
     when key LEFT goes down { key A press }
     when mouse left goes down { key B press }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();
@@ -1277,12 +1277,12 @@ loom "collision" {
 }
 
 TEST_CASE(evdev_mouse_button_events_reach_mouse_bindings) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "evdev-mouse" {
     when mouse left goes down { key CTRL press }
     when mouse left goes up { key CTRL free }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     auto backend = std::make_unique<RecordingBackend>();
     RecordingBackend* raw = backend.get();

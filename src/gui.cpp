@@ -12,7 +12,7 @@
 #include "errors.hpp"
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 constexpr int kPadding = 16;
@@ -27,7 +27,7 @@ template <typename T> using XcbReply = std::unique_ptr<T, decltype(&std::free)>;
 xcb_atom_t atom(xcb_connection_t* connection, const char* name) {
     const auto cookie = xcb_intern_atom(connection, 0, static_cast<uint16_t>(std::strlen(name)), name);
     XcbReply<xcb_intern_atom_reply_t> reply(xcb_intern_atom_reply(connection, cookie, nullptr), &std::free);
-    if (!reply) throw RuntimeErrorKeyloom("GUI could not query X11 atoms");
+    if (!reply) throw RuntimeErrorLoomwright("GUI could not query X11 atoms");
     return reply->atom;
 }
 
@@ -87,14 +87,14 @@ std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel, const std::strin
     auto host = std::unique_ptr<GuiHost>(new GuiHost(panel));
     try {
         host->connection_ = std::make_unique<XcbConnection>();
-    } catch (const RuntimeErrorKeyloom&) {
-        throw RuntimeErrorKeyloom("GUI panel \"" + panel.title + "\" needs an X11 display (Xwayland is sufficient).");
+    } catch (const RuntimeErrorLoomwright&) {
+        throw RuntimeErrorLoomwright("GUI panel \"" + panel.title + "\" needs an X11 display (Xwayland is sufficient).");
     }
     auto* connection = host->connection_->get();
     const xcb_setup_t* setup = xcb_get_setup(connection);
     auto screens = xcb_setup_roots_iterator(setup);
     for (int i = 0; i < host->connection_->screen_number() && screens.rem != 0; ++i) xcb_screen_next(&screens);
-    if (screens.rem == 0) throw RuntimeErrorKeyloom("GUI could not find X11 screen");
+    if (screens.rem == 0) throw RuntimeErrorLoomwright("GUI could not find X11 screen");
     xcb_screen_t* screen = screens.data;
 
     host->background_ = color(connection, screen->default_colormap, "#ffffff", screen->black_pixel);
@@ -108,9 +108,9 @@ std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel, const std::strin
     host->font_ = xcb_generate_id(connection);
     const auto open = xcb_open_font_checked(connection, host->font_, 5, "fixed");
     XcbReply<xcb_generic_error_t> font_error(xcb_request_check(connection, open), &std::free);
-    if (font_error || host->connection_->error()) throw RuntimeErrorKeyloom("GUI panel needs the 'fixed' X11 font.");
+    if (font_error || host->connection_->error()) throw RuntimeErrorLoomwright("GUI panel needs the 'fixed' X11 font.");
     XcbReply<xcb_query_font_reply_t> font(xcb_query_font_reply(connection, xcb_query_font(connection, host->font_), nullptr), &std::free);
-    if (!font) throw RuntimeErrorKeyloom("GUI could not query the 'fixed' X11 font.");
+    if (!font) throw RuntimeErrorLoomwright("GUI could not query the 'fixed' X11 font.");
     host->font_width_ = font->max_bounds.character_width;
     host->font_ascent_ = font->font_ascent;
     host->font_descent_ = font->font_descent;
@@ -121,13 +121,13 @@ std::unique_ptr<GuiHost> GuiHost::create(const GuiPanel& panel, const std::strin
     host->min_keycode_ = setup->min_keycode;
     host->refresh_keyboard_mapping();
     if (host->keysyms_.empty() || host->keysyms_per_keycode_ <= 0)
-        throw RuntimeErrorKeyloom("GUI could not query X11 keyboard mapping.");
+        throw RuntimeErrorLoomwright("GUI could not query X11 keyboard mapping.");
 
     host->layout();
     host->create_window();
     host->write_debug_rects();
     host->redraw_if_open_locked();
-    if (host->connection_->error()) throw RuntimeErrorKeyloom("GUI X11 connection lost during startup.");
+    if (host->connection_->error()) throw RuntimeErrorLoomwright("GUI X11 connection lost during startup.");
     return host;
 }
 
@@ -197,7 +197,7 @@ void GuiHost::create_window() {
                       XCB_CW_BACK_PIXEL | XCB_CW_BORDER_PIXEL | XCB_CW_BACKING_STORE | XCB_CW_EVENT_MASK, values);
     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window_, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8,
                         static_cast<uint32_t>(panel_.title.size()), panel_.title.data());
-    constexpr char class_name[] = "keyloom\0Keyloom\0";
+    constexpr char class_name[] = "loomwright\0Loomwright\0";
     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window_, XCB_ATOM_WM_CLASS, XCB_ATOM_STRING, 8,
                         sizeof(class_name) - 1, class_name);
     xcb_change_property(connection, XCB_PROP_MODE_REPLACE, window_, wm_protocols_, XCB_ATOM_ATOM, 32, 1, &wm_delete_window_);
@@ -262,7 +262,7 @@ void GuiHost::draw_locked() {
 void GuiHost::redraw_if_open_locked() { if (!closed_) draw_locked(); }
 
 void GuiHost::write_debug_rects() const {
-    const char* path = std::getenv("KEYLOOM_GUI_DEBUG_RECTS");
+    const char* path = std::getenv("LOOMWRIGHT_GUI_DEBUG_RECTS");
     if (path == nullptr || *path == '\0') return;
     FILE* file = std::fopen(path, "w");
     if (file == nullptr) return;
@@ -379,9 +379,9 @@ bool GuiHost::has_widget(const std::string& id) const {
 std::string GuiHost::value(const std::string& id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const int index = widget_index_by_id(id);
-    if (index < 0) throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
     if (panel_.widgets[static_cast<size_t>(index)].kind != GuiWidget::Kind::Input)
-        throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not an input.");
+        throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
     return texts_[static_cast<size_t>(index)];
 }
 
@@ -390,9 +390,9 @@ void GuiHost::set_value(const std::string& id, const std::string& value) { set_t
 void GuiHost::set_text(const std::string& id, const std::string& text) {
     std::lock_guard<std::mutex> lock(mutex_);
     const int index = widget_index_by_id(id);
-    if (index < 0) throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
     if (panel_.widgets[static_cast<size_t>(index)].kind == GuiWidget::Kind::Label)
-        throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+        throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
     texts_[static_cast<size_t>(index)] = text;
     if (!closed_) draw_locked();
 }
@@ -405,4 +405,4 @@ void GuiHost::set_visible(bool visible) {
     xcb_flush(connection_->get());
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

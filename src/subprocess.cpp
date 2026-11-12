@@ -12,7 +12,7 @@
 
 #include "errors.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 void make_nonblocking(int fd) {
@@ -375,4 +375,4 @@ std::vector<std::string> split_shell_words(const std::string& text) {
     return words;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

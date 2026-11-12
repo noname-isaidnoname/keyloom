@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Loomwright
+Comment=Run a Loomwright automation script
+Exec=loomwright-terminal %f
+Icon=loomwright
+MimeType=application/x-loomwright;
+Categories=Utility;
+StartupNotify=true

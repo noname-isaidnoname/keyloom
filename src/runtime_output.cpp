@@ -12,7 +12,7 @@
 #include "subprocess.hpp"
 
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 using detail::lower_ascii;
@@ -115,11 +115,11 @@ void Runtime::send_char(char c, const std::vector<std::string>& active_modifiers
                        const std::vector<std::string>& pending_modifiers) {
     const unsigned char byte = static_cast<unsigned char>(c);
     if (byte >= 0x80) {
-        throw RuntimeErrorKeyloom("send with held modifiers only supports ASCII; release the modifiers before typing non-ASCII text");
+        throw RuntimeErrorLoomwright("send with held modifiers only supports ASCII; release the modifiers before typing non-ASCII text");
     }
     const auto key = printable_key(c);
     if (!key) {
-        throw RuntimeErrorKeyloom("send cannot handle character " + py_repr_string(std::string(1, c)) +
+        throw RuntimeErrorLoomwright("send cannot handle character " + py_repr_string(std::string(1, c)) +
                                   " while modifiers are held");
     }
     send_target({key->key}, active_modifiers, pending_modifiers, key->shift);
@@ -147,21 +147,21 @@ void Runtime::send_string(const std::string& text) {
             flush_plain();
             const size_t close = text.find('}', index + 1);
             if (close == std::string::npos) {
-                throw RuntimeErrorKeyloom("send has an unclosed '{' token");
+                throw RuntimeErrorLoomwright("send has an unclosed '{' token");
             }
             const std::string content = trim_ascii(text.substr(index + 1, close - index - 1));
             const std::vector<std::string> words = split_send_words(content);
-            if (words.empty()) throw RuntimeErrorKeyloom("send has an empty {} token");
+            if (words.empty()) throw RuntimeErrorLoomwright("send has an empty {} token");
             const std::string& first = words.front();
 
             if (words.size() == 2) {
                 const std::string action = lower_ascii(words.at(1));
                 if (action == "down" || action == "up") {
                     if (!pending_modifiers.empty()) {
-                        throw RuntimeErrorKeyloom("send hold/release tokens cannot be combined with pending ^, !, +, or # modifiers");
+                        throw RuntimeErrorLoomwright("send hold/release tokens cannot be combined with pending ^, !, +, or # modifiers");
                     }
                     if (first.find('+') != std::string::npos) {
-                        throw RuntimeErrorKeyloom("send hold/release tokens accept one key, not a chord");
+                        throw RuntimeErrorLoomwright("send hold/release tokens accept one key, not a chord");
                     }
                     const std::string name = canonical_key(first);
                     if (action == "down") {
@@ -170,7 +170,7 @@ void Runtime::send_string(const std::string& text) {
                     } else {
                         const auto found = std::find(active_modifiers.rbegin(), active_modifiers.rend(), name);
                         if (found == active_modifiers.rend()) {
-                            throw RuntimeErrorKeyloom("send releases " + name + ", but it is not held");
+                            throw RuntimeErrorLoomwright("send releases " + name + ", but it is not held");
                         }
                         free_key(name);
                         active_modifiers.erase(std::next(found).base());
@@ -186,14 +186,14 @@ void Runtime::send_string(const std::string& text) {
                 if (count_text.empty() ||
                     !std::all_of(count_text.begin(), count_text.end(),
                                  [](char c) { return std::isdigit(static_cast<unsigned char>(c)) != 0; })) {
-                    throw RuntimeErrorKeyloom("send token {" + content + "} has a non-numeric repeat count");
+                    throw RuntimeErrorLoomwright("send token {" + content + "} has a non-numeric repeat count");
                 }
                 repeat = std::stoi(count_text);
                 if (repeat < 1 || repeat > 100) {
-                    throw RuntimeErrorKeyloom("send repeat count must be between 1 and 100");
+                    throw RuntimeErrorLoomwright("send repeat count must be between 1 and 100");
                 }
             } else if (words.size() > 2) {
-                throw RuntimeErrorKeyloom("send token {" + content + "} has too many words");
+                throw RuntimeErrorLoomwright("send token {" + content + "} has too many words");
             }
 
             std::vector<std::string> names;
@@ -215,7 +215,7 @@ void Runtime::send_string(const std::string& text) {
             continue;
         }
         if (byte < 32 || byte == 127) {
-            throw RuntimeErrorKeyloom("send cannot send control byte " + std::to_string(byte) +
+            throw RuntimeErrorLoomwright("send cannot send control byte " + std::to_string(byte) +
                                       "; use tokens such as {ENTER} and {TAB}");
         }
         if (pending_modifiers.empty() && active_modifiers.empty()) {
@@ -228,13 +228,13 @@ void Runtime::send_string(const std::string& text) {
     }
     flush_plain();
     if (!pending_modifiers.empty()) {
-        throw RuntimeErrorKeyloom("send ends with unmatched ^, !, +, or # modifiers");
+        throw RuntimeErrorLoomwright("send ends with unmatched ^, !, +, or # modifiers");
     }
 }
 
 Task Runtime::glide(int x, int y, double duration) {
     duration = std::max(0.0, std::min(duration, 30.0));
-    // Start from Keyloom's last known cursor position, or the screen centre.
+    // Start from Loomwright's last known cursor position, or the screen centre.
     const auto current_x = variables_.find("cursor_x");
     const auto current_y = variables_.find("cursor_y");
     const int start_x = current_x != variables_.end() ? static_cast<int>(current_x->second.as_int()) : width_ / 2;
@@ -261,20 +261,20 @@ void Runtime::notify_desktop(const std::string& message) {
         return;
     }
     std::string error;
-    spawn_detached({executable, "Keyloom", message}, error);
+    spawn_detached({executable, "Loomwright", message}, error);
 }
 
 void Runtime::launch_program(const std::string& command) {
     const Value* allowed = script_.option("allow_launch");
     if (allowed == nullptr || !allowed->truthy()) {
-        throw RuntimeErrorKeyloom(
+        throw RuntimeErrorLoomwright(
             "launch is disabled. Set `option allow_launch = true` to permit application launching.");
     }
     const std::vector<std::string> argv = split_shell_words(command);
-    if (argv.empty()) throw RuntimeErrorKeyloom("launch command cannot be empty");
+    if (argv.empty()) throw RuntimeErrorLoomwright("launch command cannot be empty");
     std::string error;
     if (!spawn_detached(argv, error)) {
-        throw RuntimeErrorKeyloom("could not launch " + py_repr_string(argv.front()) + ": " + error);
+        throw RuntimeErrorLoomwright("could not launch " + py_repr_string(argv.front()) + ": " + error);
     }
 }
 
@@ -290,13 +290,13 @@ std::string Runtime::clipboard(const std::string& action, const std::string& val
             command = {which("xsel"), "--clipboard", "--input"};
         }
         if (command.empty()) {
-            throw RuntimeErrorKeyloom("Clipboard write needs wl-copy (Wayland), xclip, or xsel.");
+            throw RuntimeErrorLoomwright("Clipboard write needs wl-copy (Wayland), xclip, or xsel.");
         }
         const CommandResult result = run_command(command, value, 3000);
         if (result.returncode != 0) {
             std::string detail = result.err.empty() ? result.out : result.err;
             while (!detail.empty() && (detail.back() == '\n' || detail.back() == ' ')) detail.pop_back();
-            throw RuntimeErrorKeyloom("Clipboard write failed: " +
+            throw RuntimeErrorLoomwright("Clipboard write failed: " +
                                       (detail.empty() ? "exit " + std::to_string(result.returncode) : detail));
         }
         return std::string();
@@ -310,16 +310,16 @@ std::string Runtime::clipboard(const std::string& action, const std::string& val
     } else if (!which("xsel").empty()) {
         command = {which("xsel"), "--clipboard", "--output"};
     } else {
-        throw RuntimeErrorKeyloom("Clipboard read needs wl-paste (Wayland), xclip, or xsel.");
+        throw RuntimeErrorLoomwright("Clipboard read needs wl-paste (Wayland), xclip, or xsel.");
     }
     const CommandResult result = run_command(command, std::string(), 3000);
     if (result.returncode != 0) {
         std::string detail = result.err.empty() ? result.out : result.err;
         while (!detail.empty() && (detail.back() == '\n' || detail.back() == ' ')) detail.pop_back();
-        throw RuntimeErrorKeyloom("Clipboard read failed: " +
+        throw RuntimeErrorLoomwright("Clipboard read failed: " +
                                   (detail.empty() ? "exit " + std::to_string(result.returncode) : detail));
     }
     return result.out;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

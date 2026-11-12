@@ -15,7 +15,7 @@
 #include "keys.hpp"
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 const std::vector<int>& pointer_buttons() {
@@ -122,7 +122,7 @@ OutputBackend& YdotoolBackend::pointer() {
             } catch (const BackendError& error) {
                 throw BackendError(
                     "ydotool cannot warp the pointer reliably by itself (its --absolute mode jumps to the "
-                    "top-left first). Keyloom needs write access to /dev/uinput for cursor motion; add your "
+                    "top-left first). Loomwright needs write access to /dev/uinput for cursor motion; add your "
                     "user to the 'input' group, install a udev rule, or use a backend/environment where "
                     "/dev/uinput is writable. Details: " +
                     std::string(error.what()));
@@ -225,7 +225,7 @@ UInputBackend::UInputBackend(int width, int height, bool keyboard)
         {ABS_X, 0, std::max(1, width_ - 1), 0, 0, 0},
         {ABS_Y, 0, std::max(1, height_ - 1), 0, 0, 0},
     };
-    device_ = std::make_unique<UInputDevice>("Keyloom virtual pointer", "keyloom/uinput", keys,
+    device_ = std::make_unique<UInputDevice>("Loomwright virtual pointer", "loomwright/uinput", keys,
                                              std::vector<int>{REL_X, REL_Y, REL_WHEEL, REL_HWHEEL}, axes);
 }
 
@@ -362,8 +362,8 @@ void UInputBackend::close() {
 }
 
 PassthroughDevice::PassthroughDevice(const DeviceCapabilities& capabilities, VirtualInputFactory factory)
-    : device_(factory ? factory("Keyloom passthrough", "keyloom/passthrough", capabilities)
-                      : create_uinput_from_capabilities("Keyloom passthrough", "keyloom/passthrough",
+    : device_(factory ? factory("Loomwright passthrough", "loomwright/passthrough", capabilities)
+                      : create_uinput_from_capabilities("Loomwright passthrough", "loomwright/passthrough",
                                                         capabilities)) {
     if (!device_) throw BackendError("passthrough device factory returned no device");
 }
@@ -425,4 +425,4 @@ std::unique_ptr<OutputBackend> choose_backend(const std::string& name, int width
     throw BackendError("Unknown output backend " + py_repr_string(name));
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

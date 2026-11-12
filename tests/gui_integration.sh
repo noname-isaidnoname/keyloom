@@ -2,16 +2,16 @@
 # Exercise the actual interpreter, X11 window, button callbacks, timer and dry-run backend.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BIN=${KEYLOOM_BIN:-$ROOT/build/release/keyloom}
-EVENT=${KEYLOOM_PICKER_EVENT:-$ROOT/build/release/picker_event}
-LIFETIME=${KEYLOOM_GUI_LIFETIME:-$ROOT/build/release/gui_lifetime}
-MAPPING_PROBE=${KEYLOOM_GUI_MAPPING_RUNTIME_PROBE:-$ROOT/build/release/gui_mapping_runtime_probe}
-XCB_PROBE=${KEYLOOM_XCB_PROBE:-$ROOT/build/release/xcb_disconnect_probe}
-STARTUP_PROBE=${KEYLOOM_GUI_STARTUP_PROBE:-$ROOT/build/release/gui_startup_probe}
-SCRIPT=${KEYLOOM_GUI_SCRIPT:-$ROOT/examples/antiafk.loom}
+BIN=${LOOMWRIGHT_BIN:-$ROOT/build/release/loomwright}
+EVENT=${LOOMWRIGHT_PICKER_EVENT:-$ROOT/build/release/picker_event}
+LIFETIME=${LOOMWRIGHT_GUI_LIFETIME:-$ROOT/build/release/gui_lifetime}
+MAPPING_PROBE=${LOOMWRIGHT_GUI_MAPPING_RUNTIME_PROBE:-$ROOT/build/release/gui_mapping_runtime_probe}
+XCB_PROBE=${LOOMWRIGHT_XCB_PROBE:-$ROOT/build/release/xcb_disconnect_probe}
+STARTUP_PROBE=${LOOMWRIGHT_GUI_STARTUP_PROBE:-$ROOT/build/release/gui_startup_probe}
+SCRIPT=${LOOMWRIGHT_GUI_SCRIPT:-$ROOT/examples/antiafk.loom}
 command -v xdotool >/dev/null || exit 77
 [[ -x $BIN && -x $EVENT && -x $LIFETIME && -x $XCB_PROBE && -x $STARTUP_PROBE ]] || exit 77
-DIR=$(mktemp -d "${TMPDIR:-/tmp}/keyloom-gui.XXXXXXXX")
+DIR=$(mktemp -d "${TMPDIR:-/tmp}/loomwright-gui.XXXXXXXX")
 server= app= probe= startup_probe= map_probe=
 cleanup() {
     local status=$?
@@ -96,7 +96,7 @@ if command -v setxkbmap >/dev/null && command -v Xvfb >/dev/null; then
     fi
 fi
 
-DISPLAY=$D KEYLOOM_GUI_DEBUG_RECTS="$DIR/rects" stdbuf -oL "$BIN" --run "$SCRIPT" --dry-run >"$DIR/out" 2>"$DIR/err" & app=$!
+DISPLAY=$D LOOMWRIGHT_GUI_DEBUG_RECTS="$DIR/rects" stdbuf -oL "$BIN" --run "$SCRIPT" --dry-run >"$DIR/out" 2>"$DIR/err" & app=$!
 window=
 for _ in $(seq 1 100); do
     kill -0 "$app" 2>/dev/null || { cat "$DIR/err" >&2; exit 1; }
@@ -151,17 +151,17 @@ for _ in $(seq 1 50); do
     kill -0 "$app" 2>/dev/null || break
     sleep 0.1
 done
-if kill -0 "$app" 2>/dev/null; then echo 'window close did not stop Keyloom' >&2; exit 1; fi
+if kill -0 "$app" 2>/dev/null; then echo 'window close did not stop Loomwright' >&2; exit 1; fi
 wait "$app"
 app=
 echo 'ok   persistent anti-AFK panel: edit fields, start, stop and remain open'
 
-cat >"$DIR/external.loom" <<'LOOM'
+cat >"$DIR/external.loom" <<'LOOMWRIGHT'
 loom "external destroy" {
     gui "Destroy Test" { label "test" }
     when gui window closes { log "destroy-close-once" }
 }
-LOOM
+LOOMWRIGHT
 DISPLAY=$D stdbuf -oL "$BIN" --run "$DIR/external.loom" --dry-run >"$DIR/out" 2>"$DIR/err" & app=$!
 window=
 for _ in $(seq 1 100); do
@@ -185,12 +185,12 @@ app=
 [[ ! -s $DIR/err ]] || { cat "$DIR/err" >&2; exit 1; }
 echo 'ok   external window destruction dispatches one close event'
 
-cat >"$DIR/disconnect.loom" <<'LOOM'
+cat >"$DIR/disconnect.loom" <<'LOOMWRIGHT'
 loom "display disconnect" {
     gui "Disconnect Test" { input status = "test" }
     when timer every 5ms { call gui_set_text("status", "updating") }
 }
-LOOM
+LOOMWRIGHT
 DISPLAY=$D stdbuf -oL "$BIN" --run "$DIR/disconnect.loom" --dry-run >"$DIR/out" 2>"$DIR/err" & app=$!
 for _ in $(seq 1 100); do
     kill -0 "$app" 2>/dev/null || { cat "$DIR/err" >&2; exit 1; }
@@ -259,7 +259,7 @@ for _ in $(seq 1 50); do
     kill -0 "$app" 2>/dev/null || break
     sleep 0.1
 done
-if kill -0 "$app" 2>/dev/null; then echo 'display disconnect did not stop Keyloom' >&2; exit 1; fi
+if kill -0 "$app" 2>/dev/null; then echo 'display disconnect did not stop Loomwright' >&2; exit 1; fi
 wait "$app"
 app=
 grep -q 'Stopped;' "$DIR/out"

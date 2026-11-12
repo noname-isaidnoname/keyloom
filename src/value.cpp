@@ -9,7 +9,7 @@
 
 #include "errors.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 const char* kInvalidInt = "invalid literal for int()";
@@ -28,7 +28,7 @@ std::string strip(const std::string& text) {
 }
 
 [[noreturn]] void throw_value_error(const std::string& message) {
-    throw RuntimeErrorKeyloom(message);
+    throw RuntimeErrorLoomwright(message);
 }
 
 /// Python's `repr()` of a list, which is also its `str()`.
@@ -81,14 +81,14 @@ Value Value::of_list(std::vector<Value> values) {
 
 std::vector<Value>& Value::list_items() {
     if (type != Type::List || !items) {
-        throw RuntimeErrorKeyloom("expected a list");
+        throw RuntimeErrorLoomwright("expected a list");
     }
     return *items;
 }
 
 const std::vector<Value>& Value::list_items() const {
     if (type != Type::List || !items) {
-        throw RuntimeErrorKeyloom("expected a list");
+        throw RuntimeErrorLoomwright("expected a list");
     }
     return *items;
 }
@@ -295,4 +295,4 @@ std::string py_repr_string(const std::string& text) {
     return out;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

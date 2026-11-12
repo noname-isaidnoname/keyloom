@@ -1,6 +1,6 @@
-# Keyloom documentation
+# Loomwright documentation
 
-This folder is the home for Keyloom's internal and agent-facing documentation:
+This folder is the home for Loomwright's internal and agent-facing documentation:
 how the code is organised, how it is built and tested, the traps that are easy
 to fall into, and the rules for changing the language and shipping a release.
 
@@ -9,7 +9,7 @@ User-facing documentation lives outside this folder:
 | Audience | Document |
 | --- | --- |
 | Users | `README.md` (setup, CLI, language overview, examples) |
-| Users | `keyloom --docs [topic]` — the language guide in `src/docs.cpp` |
+| Users | `loomwright --docs [topic]` — the language guide in `src/docs.cpp` |
 | Users | `examples/*.loom` — runnable scripts |
 | Agents and contributors | `AGENTS.md` — the entry point and repository rules |
 | Agents and contributors | `docs/` — this folder |

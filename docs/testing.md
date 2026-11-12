@@ -22,7 +22,7 @@ For release packaging and Podman CI testing, see [releases.md](releases.md).
 | `tests/uinput_ioctl_fault_shim.c` | The ioctl fault-injection shim |
 | `tests/*_probe.cpp` | Deterministic fault and lifecycle probes used by the integration scripts |
 
-The unit tests are one executable, `keyloom_tests`. The integration tests are
+The unit tests are one executable, `loomwright_tests`. The integration tests are
 separate executables and shell scripts registered with CTest.
 
 ## Running
@@ -38,10 +38,10 @@ Or build a preset and run the binary directly:
 
 ```bash
 cmake --build build/release -j$(nproc)
-./build/release/keyloom_tests
+./build/release/loomwright_tests
 ```
 
-`keyloom_tests` prints one `ok   <name>` line per test and a final
+`loomwright_tests` prints one `ok   <name>` line per test and a final
 `N/N tests passed` summary. `run_all(filter)` accepts a substring filter.
 The release and sanitizer CTest presets print failing test output. GitHub CI
 installs Xvfb, xdotool and ImageMagick to exercise the headless GUI and picker tests;
@@ -53,7 +53,7 @@ Weston and the optional GTK3/wayland-client build dependencies are available.
 
 | Test | What it covers | Skip code |
 | --- | --- | --- |
-| `keyloom_tests` | All unit tests | — |
+| `loomwright_tests` | All unit tests | — |
 | `evdev_handoff` | Split evdev/uinput handoff against real kernel devices | 77 |
 | `picker_integration` | `--get-mouse-pos` on a private X server, 24-bit | 77 |
 | `picker_integration_16` | Same, 16-bit (only when Xvfb is found) | 77 |
@@ -85,15 +85,15 @@ fails in a release build.
 ```bash
 make
 ctest --preset release
-keyloom --check examples/two_spots.loom
-keyloom --run examples/two_spots.loom --dry-run
-keyloom --doctor
-keyloom --screen
+loomwright --check examples/two_spots.loom
+loomwright --run examples/two_spots.loom --dry-run
+loomwright --doctor
+loomwright --screen
 ```
 
 Run the full suite after touching the lexer, parser, checker, runtime,
 scheduler, input, uinput or backends. When the language changes, also run
-`keyloom --check` on every script in `examples/`.
+`loomwright --check` on every script in `examples/`.
 
 ### Real pointer verification
 
@@ -102,7 +102,7 @@ and D, and confirm the pointer lands at `640,420` and `1080,420`. On KWin, a
 temporary scripting file can log `workspace.cursorPos` to the journal:
 
 ```js
-function main() { console.log("KEYLOOM_POS " + workspace.cursorPos.x + "," + workspace.cursorPos.y); }
+function main() { console.log("LOOMWRIGHT_POS " + workspace.cursorPos.x + "," + workspace.cursorPos.y); }
 main();
 ```
 

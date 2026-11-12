@@ -5,7 +5,7 @@
 
 #include "ast.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 struct Diagnostic {
     std::string level;  // "error" | "warning" | "ok"
@@ -19,4 +19,4 @@ struct Diagnostic {
 /// and /dev/uinput availability. Never opens input devices.
 std::vector<Diagnostic> check_script(const Script& script);
 
-}  // namespace keyloom
+}  // namespace loomwright

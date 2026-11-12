@@ -1,4 +1,4 @@
-# Persistent Space auto-presser. Closing the window stops Keyloom.
+# Persistent Space auto-presser. Closing the window stops Loomwright.
 loom "antiafk" {
     option output = "uinput"
     option panic = "END"

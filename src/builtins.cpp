@@ -1,6 +1,6 @@
 #include "builtins.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 /// The table is the single source of truth for which functions exist and how
@@ -79,4 +79,4 @@ const BuiltinInfo* find_builtin_function(const std::string& name) {
 
 bool is_builtin_function(const std::string& name) { return find_builtin_function(name) != nullptr; }
 
-}  // namespace keyloom
+}  // namespace loomwright

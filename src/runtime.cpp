@@ -27,7 +27,7 @@
 #include "subprocess.hpp"
 
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 using detail::lower_ascii;
@@ -44,12 +44,12 @@ struct SignalScope {
         sigaddset(&mask, SIGINT);
         sigaddset(&mask, SIGTERM);
         if (::sigprocmask(SIG_BLOCK, &mask, &previous) < 0)
-            throw RuntimeErrorKeyloom("cannot block signals: " + std::string(std::strerror(errno)));
+            throw RuntimeErrorLoomwright("cannot block signals: " + std::string(std::strerror(errno)));
         fd = ::signalfd(-1, &mask, SFD_NONBLOCK | SFD_CLOEXEC);
         if (fd < 0) {
             const int error = errno;
             ::sigprocmask(SIG_SETMASK, &previous, nullptr);
-            throw RuntimeErrorKeyloom("cannot create signal fd: " + std::string(std::strerror(error)));
+            throw RuntimeErrorLoomwright("cannot create signal fd: " + std::string(std::strerror(error)));
         }
     }
     ~SignalScope() {
@@ -127,7 +127,7 @@ int compare_values(const Value& left, const Value& right) {
         const int result = left.text.compare(right.text);
         return result < 0 ? -1 : (result > 0 ? 1 : 0);
     }
-    throw RuntimeErrorKeyloom(std::string("'<' not supported between instances of '") + py_type_name(left) +
+    throw RuntimeErrorLoomwright(std::string("'<' not supported between instances of '") + py_type_name(left) +
                               "' and '" + py_type_name(right) + "'");
 }
 
@@ -217,8 +217,8 @@ std::string hotkey_id_for_name(const std::string& raw_name) {
 std::string canonical_key(const std::string& name) { return canonical_key_name(name); }
 
 std::pair<int, int> detect_screen_size() {
-    const char* env_width = std::getenv("KEYLOOM_SCREEN_WIDTH");
-    const char* env_height = std::getenv("KEYLOOM_SCREEN_HEIGHT");
+    const char* env_width = std::getenv("LOOMWRIGHT_SCREEN_WIDTH");
+    const char* env_height = std::getenv("LOOMWRIGHT_SCREEN_HEIGHT");
     if (env_width != nullptr && env_height != nullptr) {
         try {
             return {std::max(1, std::stoi(env_width)), std::max(1, std::stoi(env_height))};
@@ -304,13 +304,13 @@ std::pair<int, int> detect_screen_size() {
 std::pair<int, int> parse_screen_option(const Value* value, std::pair<int, int> fallback) {
     if (value == nullptr || value->is_none()) return fallback;
     if (value->type != Value::Type::Str) {
-        throw RuntimeErrorKeyloom("option screen must be a string such as '1920x1080'");
+        throw RuntimeErrorLoomwright("option screen must be a string such as '1920x1080'");
     }
     const std::string text = lower_ascii(value->text);
     if (text == "auto") return fallback;
     const size_t separator = text.find('x');
     if (separator == std::string::npos) {
-        throw RuntimeErrorKeyloom("option screen must look like '1920x1080' or 'auto'");
+        throw RuntimeErrorLoomwright("option screen must look like '1920x1080' or 'auto'");
     }
     try {
         const std::string width_text = text.substr(0, separator);
@@ -322,7 +322,7 @@ std::pair<int, int> parse_screen_option(const Value* value, std::pair<int, int> 
         if (used != height_text.size() || height_text.empty()) throw std::invalid_argument("height");
         return {std::max(1, width), std::max(1, height)};
     } catch (const std::exception&) {
-        throw RuntimeErrorKeyloom("option screen must look like '1920x1080' or 'auto'");
+        throw RuntimeErrorLoomwright("option screen must look like '1920x1080' or 'auto'");
     }
 }
 
@@ -387,7 +387,7 @@ Runtime::~Runtime() {
     }
 }
 
-void Runtime::say(const std::string& message) { std::cout << "[keyloom] " << message << '\n' << std::flush; }
+void Runtime::say(const std::string& message) { std::cout << "[loomwright] " << message << '\n' << std::flush; }
 
 std::unique_ptr<OutputBackend> Runtime::select_backend() {
     if (options_.dry_run) return std::make_unique<DryRunBackend>();
@@ -424,17 +424,17 @@ Task::handle_type Runtime::spawn_held(const Node& event, const std::string& key)
 }
 
 std::string Runtime::input_permission_help() const {
-    return "No accessible keyboard devices were found. Keyloom reads /dev/input/event* through evdev. "
+    return "No accessible keyboard devices were found. Loomwright reads /dev/input/event* through evdev. "
            "On most distributions, add your user to the 'input' group (then log out/in), or create a "
            "narrow udev rule for your keyboard. Do not run the whole automation as root. "
-           "Use `keyloom --devices` to inspect permissions.";
+           "Use `loomwright --devices` to inspect permissions.";
 }
 
 std::string Runtime::mouse_permission_help() const {
-    return "No accessible mouse devices were found. Keyloom reads /dev/input/event* through evdev and "
+    return "No accessible mouse devices were found. Loomwright reads /dev/input/event* through evdev and "
            "needs a device that reports both BTN_LEFT and BTN_RIGHT. On most distributions, add your "
            "user to the 'input' group (then log out/in), or create a narrow udev rule for your mouse. "
-           "Do not run the whole automation as root. Use `keyloom --devices` to inspect permissions.";
+           "Do not run the whole automation as root. Use `loomwright --devices` to inspect permissions.";
 }
 
 std::set<std::string> Runtime::collect_consumed_keys() const {
@@ -499,7 +499,7 @@ Task Runtime::run_body() {
     std::shared_ptr<SignalScope> signals;
     try {
         if (::access("/proc", F_OK) != 0) {
-            throw RuntimeErrorKeyloom("Keyloom's live runtime is Linux-only.");
+            throw RuntimeErrorLoomwright("Loomwright's live runtime is Linux-only.");
         }
         const Value* compositor_option = script_.option("compositor");
         std::string compositor = compositor_option ? compositor_option->to_string() : "auto";
@@ -522,14 +522,14 @@ Task Runtime::run_body() {
             std::unique_ptr<GuiHost> host;
             try {
                 host = GuiHost::create(panel, compositor);
-            } catch (const RuntimeErrorKeyloom& error) {
+            } catch (const RuntimeErrorLoomwright& error) {
                 if (!automatic_compositor || compositor != "wayland" || !gui_hosts_.empty()) throw;
                 const std::string native_error = error.what();
                 compositor = "x11";
                 try {
                     host = GuiHost::create(panel, compositor);
-                } catch (const RuntimeErrorKeyloom& fallback_error) {
-                    throw RuntimeErrorKeyloom("Could not start a native Wayland panel (" + native_error +
+                } catch (const RuntimeErrorLoomwright& fallback_error) {
+                    throw RuntimeErrorLoomwright("Could not start a native Wayland panel (" + native_error +
                                                ") or an X11 fallback (" + fallback_error.what() + ").");
                 }
             }
@@ -558,10 +558,10 @@ Task Runtime::run_body() {
             return std::any_of(devices_.begin(), devices_.end(), predicate);
         };
         if (has_key_events && !has_device([](const auto& device) { return device->is_keyboard(); })) {
-            throw RuntimeErrorKeyloom(input_permission_help());
+            throw RuntimeErrorLoomwright(input_permission_help());
         }
         if (has_mouse_events && !has_device([](const auto& device) { return device->is_mouse(); })) {
-            throw RuntimeErrorKeyloom(mouse_permission_help());
+            throw RuntimeErrorLoomwright(mouse_permission_help());
         }
 
         if (!devices_.empty()) {
@@ -581,7 +581,7 @@ Task Runtime::run_body() {
                                             [&device] { return device->discard_pending_events(); },
                                             [&device] { device->grab(); }, [&device] { device->ungrab(); });
                         } catch (const std::exception& error) {
-                            throw RuntimeErrorKeyloom(
+                            throw RuntimeErrorLoomwright(
                                 "Cannot grab input device " + device->path() + " (" + device->name() +
                                 ") for key consumption; another program may already be grabbing it or your "
                                 "user lacks device access. Details: " +
@@ -622,7 +622,7 @@ Task Runtime::run_body() {
         }
 
         co_await wait_stop();
-        if (!runtime_error_.empty()) throw RuntimeErrorKeyloom(runtime_error_);
+        if (!runtime_error_.empty()) throw RuntimeErrorLoomwright(runtime_error_);
     } catch (...) {
         failure = std::current_exception();
     }
@@ -771,7 +771,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 free_button(owner);
             } else {
                 ++tap_counter_;
-                const std::string tap_owner = "__keyloom_tap_" + std::to_string(tap_counter_);
+                const std::string tap_owner = "__loomwright_tap_" + std::to_string(tap_counter_);
                 hold_button(tap_owner, button);
                 ButtonRelease release{this, tap_owner};
                 co_await sleep_for(node.has_duration ? node.duration : 0.06);
@@ -831,7 +831,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                     co_await eval(node.exprs.at(0), context, seconds_value);
                 }
                 const double seconds = seconds_value.as_double();
-                if (!std::isfinite(seconds) || seconds < 0) throw RuntimeErrorKeyloom("wait duration must be finite and non-negative");
+                if (!std::isfinite(seconds) || seconds < 0) throw RuntimeErrorLoomwright("wait duration must be finite and non-negative");
                 co_await sleep_for(seconds);
             }
             break;
@@ -890,7 +890,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             co_await eval(node.exprs.at(0), context, count_value);
             const long long count = count_value.as_int();
             if (count < 0 || count > kMaxLoop) {
-                throw RuntimeErrorKeyloom("repeat count must be from 0 to " + std::to_string(kMaxLoop));
+                throw RuntimeErrorLoomwright("repeat count must be from 0 to " + std::to_string(kMaxLoop));
             }
             ++loop_depth_;
             const auto depth = make_scope_exit([this] { --loop_depth_; });
@@ -917,7 +917,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 if (scheduler_.stop_requested()) break;
                 ++iterations;
                 if (iterations > kMaxLoop) {
-                    throw RuntimeErrorKeyloom("while loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                    throw RuntimeErrorLoomwright("while loop exceeded safety limit (" + std::to_string(kMaxLoop) +
                                               " iterations)");
                 }
                 try {
@@ -937,7 +937,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 Value items;
                 co_await eval(node.exprs.at(0), context, items);
                 if (!items.is_list()) {
-                    throw RuntimeErrorKeyloom(std::string("for ... in requires a list, got ") + py_type_name(items));
+                    throw RuntimeErrorLoomwright(std::string("for ... in requires a list, got ") + py_type_name(items));
                 }
                 // Iterate a snapshot so the body may change the list.
                 const std::vector<Value> snapshot = items.list_items();
@@ -945,7 +945,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 for (const Value& item : snapshot) {
                     if (scheduler_.stop_requested()) break;
                     if (++iterations > kMaxLoop) {
-                        throw RuntimeErrorKeyloom("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                        throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
                                                   " iterations)");
                     }
                     assign_variable(node.a, item);
@@ -970,12 +970,12 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                     co_await eval(node.exprs.at(2), context, step_value);
                     step = step_value.as_int();
                 }
-                if (step == 0) throw RuntimeErrorKeyloom("for loop step must not be zero");
+                if (step == 0) throw RuntimeErrorLoomwright("for loop step must not be zero");
                 long long iterations = 0;
                 for (long long value = start; step > 0 ? value <= end : value >= end; value += step) {
                     if (scheduler_.stop_requested()) break;
                     if (++iterations > kMaxLoop) {
-                        throw RuntimeErrorKeyloom("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                        throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
                                                   " iterations)");
                     }
                     assign_variable(node.a, Value::of_int(value));
@@ -991,13 +991,13 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             break;
         }
         case StmtKind::Break:
-            if (loop_depth_ == 0) throw RuntimeErrorKeyloom("break outside a loop");
+            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("break outside a loop");
             throw BreakSignal{};
         case StmtKind::Continue:
-            if (loop_depth_ == 0) throw RuntimeErrorKeyloom("continue outside a loop");
+            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("continue outside a loop");
             throw ContinueSignal{};
         case StmtKind::Return: {
-            if (function_depth_ == 0) throw RuntimeErrorKeyloom("return outside a function");
+            if (function_depth_ == 0) throw RuntimeErrorLoomwright("return outside a function");
             ReturnSignal signal;
             if (!node.exprs.empty()) {
                 Value value;
@@ -1010,7 +1010,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             Value condition;
             co_await eval(node.exprs.at(0), context, condition);
             if (!condition.truthy()) {
-                throw RuntimeErrorKeyloom("assertion failed at line " + std::to_string(node.line));
+                throw RuntimeErrorLoomwright("assertion failed at line " + std::to_string(node.line));
             }
             break;
         }
@@ -1053,12 +1053,12 @@ void Runtime::assign_variable(const std::string& name, Value value) {
 Task Runtime::call_user_function(const Function& function, std::vector<Value> args, const EventContext& context,
                                  Value& out) {
     if (args.size() != function.params.size()) {
-        throw RuntimeErrorKeyloom("Function " + py_repr_string(function.name) + "() takes " +
+        throw RuntimeErrorLoomwright("Function " + py_repr_string(function.name) + "() takes " +
                                   std::to_string(function.params.size()) + " argument(s), got " +
                                   std::to_string(args.size()));
     }
     if (function_depth_ >= kMaxCallDepth) {
-        throw RuntimeErrorKeyloom("Maximum function call depth exceeded (" + std::to_string(kMaxCallDepth) + ")");
+        throw RuntimeErrorLoomwright("Maximum function call depth exceeded (" + std::to_string(kMaxCallDepth) + ")");
     }
     ++function_depth_;
     const auto depth = make_scope_exit([this] { --function_depth_; });
@@ -1089,13 +1089,13 @@ Task Runtime::call_user_function(const Function& function, std::vector<Value> ar
 Value Runtime::call_function(const std::string& name, std::vector<Value> args, const EventContext& context) {
     const auto require = [&](size_t count) {
         if (args.size() == count) return;
-        throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected " + std::to_string(count) +
+        throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected " + std::to_string(count) +
                                   " argument(s), got " + std::to_string(args.size()));
     };
 
     if (name == "min" || name == "max") {
         if (args.empty()) {
-            throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected at least 1 argument");
+            throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected at least 1 argument");
         }
         Value best = args.front();
         for (size_t index = 1; index < args.size(); ++index) {
@@ -1126,7 +1126,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     if (name == "sqrt") {
         require(1);
         const double value = args[0].as_double();
-        if (value < 0.0) throw RuntimeErrorKeyloom("math domain error");
+        if (value < 0.0) throw RuntimeErrorLoomwright("math domain error");
         return Value::of_float(std::sqrt(value));
     }
     if (name == "clamp") {
@@ -1169,7 +1169,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             return Value::of_int(static_cast<long long>(args[0].list_items().size()));
         }
         if (args[0].type != Value::Type::Str) {
-            throw RuntimeErrorKeyloom(std::string("object of type '") + py_type_name(args[0]) +
+            throw RuntimeErrorLoomwright(std::string("object of type '") + py_type_name(args[0]) +
                                       "' has no len()");
         }
         return Value::of_int(static_cast<long long>(utf8_length(args[0].text)));
@@ -1182,7 +1182,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         require(2);
         const long long low = args[0].as_int();
         const long long high = args[1].as_int();
-        if (low > high) throw RuntimeErrorKeyloom("empty range for randrange()");
+        if (low > high) throw RuntimeErrorLoomwright("empty range for randrange()");
         std::uniform_int_distribution<long long> distribution(low, high);
         return Value::of_int(distribution(random_engine_));
     }
@@ -1254,7 +1254,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
         if (host == nullptr) {
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
         }
         return Value::of_str(host->value(id));
     }
@@ -1263,7 +1263,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
         if (host == nullptr) {
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
         }
         host->set_text(id, args[1].to_string());
         return Value::of_bool(true);
@@ -1279,7 +1279,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             }
         }
         if (!found) {
-            throw RuntimeErrorKeyloom("GUI panel " + py_repr_string(title) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI panel " + py_repr_string(title) + " is not declared in a gui block.");
         }
         return Value::of_bool(true);
     }
@@ -1307,7 +1307,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
     if (name == "gui_alert") {
         if (args.size() < 1 || args.size() > 2) {
-            throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
+            throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
                                       std::to_string(args.size()));
         }
         gui_alert(args[0].to_string(), args.size() == 2 ? args[1].to_string() : script_.name);
@@ -1315,7 +1315,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
     if (name == "gui_input") {
         if (args.size() < 1 || args.size() > 3) {
-            throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected 1 to 3 argument(s), got " +
+            throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 to 3 argument(s), got " +
                                       std::to_string(args.size()));
         }
         return Value::of_str(gui_input(args[0].to_string(),
@@ -1324,7 +1324,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
     if (name == "gui_confirm") {
         if (args.size() < 1 || args.size() > 2) {
-            throw RuntimeErrorKeyloom("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
+            throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
                                       std::to_string(args.size()));
         }
         return Value::of_bool(gui_confirm(args[0].to_string(),
@@ -1342,7 +1342,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     // Strings.
     const auto require_string = [&](size_t index) -> const std::string& {
         if (args[index].type != Value::Type::Str) {
-            throw RuntimeErrorKeyloom(name + "() expects a string, got " + py_type_name(args[index]));
+            throw RuntimeErrorLoomwright(name + "() expects a string, got " + py_type_name(args[index]));
         }
         return args[index].text;
     };
@@ -1408,7 +1408,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
     if (name == "substr") {
         if (args.size() < 2 || args.size() > 3) {
-            throw RuntimeErrorKeyloom("Invalid arguments for substr(): expected 2 or 3 argument(s), got " +
+            throw RuntimeErrorLoomwright("Invalid arguments for substr(): expected 2 or 3 argument(s), got " +
                                       std::to_string(args.size()));
         }
         const std::string& text = require_string(0);
@@ -1442,7 +1442,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         for (size_t index = 0; index < items.size(); ++index) {
             if (index > 0) out += separator;
             if (items[index].type != Value::Type::Str) {
-                throw RuntimeErrorKeyloom(std::string("join() expects a list of strings, got ") + py_type_name(items[index]));
+                throw RuntimeErrorLoomwright(std::string("join() expects a list of strings, got ") + py_type_name(items[index]));
             }
             out += items[index].text;
         }
@@ -1452,7 +1452,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         require(2);
         const std::string& text = require_string(0);
         const std::string& separator = require_string(1);
-        if (separator.empty()) throw RuntimeErrorKeyloom("split() separator cannot be empty");
+        if (separator.empty()) throw RuntimeErrorLoomwright("split() separator cannot be empty");
         std::vector<Value> parts;
         size_t start = 0;
         while (true) {
@@ -1481,9 +1481,9 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
 
     if (is_builtin_function(name)) {
-        throw RuntimeErrorKeyloom("Function " + py_repr_string(name) + " is declared but not implemented");
+        throw RuntimeErrorLoomwright("Function " + py_repr_string(name) + " is declared but not implemented");
     }
-    throw RuntimeErrorKeyloom("Unknown function " + py_repr_string(name));
+    throw RuntimeErrorLoomwright("Unknown function " + py_repr_string(name));
 }
 
 Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out) {
@@ -1502,7 +1502,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             }
             Value value;
             if (!lookup_variable(expr->name, value)) {
-                throw RuntimeErrorKeyloom("Unknown variable " + py_repr_string(expr->name));
+                throw RuntimeErrorLoomwright("Unknown variable " + py_repr_string(expr->name));
             }
             out = std::move(value);
             break;
@@ -1524,13 +1524,13 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             co_await eval(expr->args.at(0), context, base);
             co_await eval(expr->args.at(1), context, index_value);
             if (!base.is_list()) {
-                throw RuntimeErrorKeyloom(std::string("only a list can be indexed, got ") + py_type_name(base));
+                throw RuntimeErrorLoomwright(std::string("only a list can be indexed, got ") + py_type_name(base));
             }
             const std::vector<Value>& items = base.list_items();
             long long index = index_value.as_int();
             if (index < 0) index += static_cast<long long>(items.size());
             if (index < 0 || index >= static_cast<long long>(items.size())) {
-                throw RuntimeErrorKeyloom("list index out of range");
+                throw RuntimeErrorLoomwright("list index out of range");
             }
             out = items[static_cast<size_t>(index)];
             break;
@@ -1608,21 +1608,21 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
                 break;
             }
             if (!numeric_like(left) || !numeric_like(right)) {
-                throw RuntimeErrorKeyloom("unsupported operand type(s) for " + op + ": '" +
+                throw RuntimeErrorLoomwright("unsupported operand type(s) for " + op + ": '" +
                                           py_type_name(left) + "' and '" + py_type_name(right) + "'");
             }
 
             const bool want_float = left.type == Value::Type::Float || right.type == Value::Type::Float;
             if (op == "/") {
                 const double divisor = right.as_double();
-                if (divisor == 0.0) throw RuntimeErrorKeyloom("Division by zero");
+                if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
                 out = Value::of_float(left.as_double() / divisor);
                 break;
             }
             if (op == "%") {
                 if (!want_float) {
                     const long long divisor = right.as_int();
-                    if (divisor == 0) throw RuntimeErrorKeyloom("Division by zero");
+                    if (divisor == 0) throw RuntimeErrorLoomwright("Division by zero");
                     const long long value = left.as_int();
                     long long result = value % divisor;
                     if (result != 0 && ((result < 0) != (divisor < 0))) result += divisor;
@@ -1630,7 +1630,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
                     break;
                 }
                 const double divisor = right.as_double();
-                if (divisor == 0.0) throw RuntimeErrorKeyloom("Division by zero");
+                if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
                 double result = std::fmod(left.as_double(), divisor);
                 if (result != 0.0 && ((result < 0.0) != (divisor < 0.0))) result += divisor;
                 out = Value::of_float(result);
@@ -1651,7 +1651,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
                                  : Value::of_int(left.as_int() * right.as_int());
                 break;
             }
-            throw RuntimeErrorKeyloom("unsupported operator " + py_repr_string(op));
+            throw RuntimeErrorLoomwright("unsupported operator " + py_repr_string(op));
         }
         case Expr::Kind::Call: {
             std::vector<Value> args;
@@ -1678,7 +1678,7 @@ void Runtime::hold_button(const std::string& owner, const std::string& button) {
     const auto existing = held_tokens_.find(owner);
     if (existing != held_tokens_.end()) {
         if (existing->second != button) {
-            throw RuntimeErrorKeyloom("Hold token " + py_repr_string(owner) + " already belongs to " +
+            throw RuntimeErrorLoomwright("Hold token " + py_repr_string(owner) + " already belongs to " +
                                       existing->second);
         }
         return;
@@ -1747,4 +1747,4 @@ void Runtime::release_all_holds() {
     key_refs_.clear();
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

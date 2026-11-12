@@ -3,7 +3,7 @@
 #include <memory>
 #include <xcb/xcb.h>
 
-namespace keyloom {
+namespace loomwright {
 
 /// An XCB connection that can report server loss without Xlib's fatal I/O path.
 class XcbConnection {
@@ -26,4 +26,4 @@ private:
     int screen_ = 0;
 };
 
-}  // namespace keyloom
+}  // namespace loomwright

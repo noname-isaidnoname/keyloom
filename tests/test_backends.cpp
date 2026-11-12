@@ -15,7 +15,7 @@
 #include "unique_fd.hpp"
 #include "xcb_connection.hpp"
 
-using namespace keyloom;
+using namespace loomwright;
 
 namespace {
 
@@ -122,7 +122,7 @@ TEST_CASE(uinput_setup_step_injection_closes_fd_and_reports_step) {
 
 TEST_CASE(real_uinput_device_happy_path_transitions_when_writable) {
     if (::access("/dev/uinput", W_OK) != 0) return;  // environment-dependent
-    UInputDevice device("Keyloom test", "keyloom/test/real-uinput-smoke", {KEY_F24}, {}, {});
+    UInputDevice device("Loomwright test", "loomwright/test/real-uinput-smoke", {KEY_F24}, {}, {});
     device.write(EV_KEY, KEY_F24, 1);
     device.write(EV_SYN, SYN_REPORT, 0);
     device.write(EV_KEY, KEY_F24, 0);
@@ -163,5 +163,5 @@ TEST_CASE(unique_fd_closes_descriptor_on_setup_exception) {
 }
 
 TEST_CASE(xcb_connection_reports_invalid_display) {
-    CHECK_THROWS(XcbConnection("invalid-keyloom-display"), RuntimeErrorKeyloom);
+    CHECK_THROWS(XcbConnection("invalid-loomwright-display"), RuntimeErrorLoomwright);
 }

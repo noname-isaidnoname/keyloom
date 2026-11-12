@@ -4,7 +4,7 @@
 
 #include "errors.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 void XcbConnection::Disconnect::operator()(xcb_connection_t* connection) const noexcept {
     if (connection != nullptr) xcb_disconnect(connection);
@@ -12,9 +12,9 @@ void XcbConnection::Disconnect::operator()(xcb_connection_t* connection) const n
 
 XcbConnection::XcbConnection(const char* display) {
     connection_.reset(xcb_connect(display, &screen_));
-    if (!connection_) throw RuntimeErrorKeyloom("cannot allocate XCB connection");
+    if (!connection_) throw RuntimeErrorLoomwright("cannot allocate XCB connection");
     const int status = xcb_connection_has_error(connection_.get());
-    if (status != 0) throw RuntimeErrorKeyloom("cannot open XCB display (error " + std::to_string(status) + ")");
+    if (status != 0) throw RuntimeErrorLoomwright("cannot open XCB display (error " + std::to_string(status) + ")");
 }
 
 int XcbConnection::fd() const {
@@ -25,4 +25,4 @@ int XcbConnection::error() const {
     return connection_ ? xcb_connection_has_error(connection_.get()) : XCB_CONN_ERROR;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -10,7 +10,7 @@
 #include "runtime_internal.hpp"
 
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 using detail::lower_ascii;
@@ -43,7 +43,7 @@ std::vector<std::unique_ptr<InputDevice>> Runtime::open_input_devices(bool inclu
         const std::string name = lower_ascii(device->name());
         // Never react to our own injected devices, or to the evdev proxies the
         // Python remappers create when both tools run at once.
-        if (name.find("keyloom") != std::string::npos || name.find("ydotool") != std::string::npos ||
+        if (name.find("loomwright") != std::string::npos || name.find("ydotool") != std::string::npos ||
             name.find("virtual pointer") != std::string::npos ||
             name.find("remap_clicks") != std::string::npos) {
             continue;
@@ -127,7 +127,7 @@ void Runtime::process_events(const std::vector<RawEvent>& events, EventSink* sin
         if (desynchronized_devices_.count(path) != 0) {
             if (event.type != EV_SYN || event.code != SYN_REPORT) continue;
             try {
-                if (!snapshot) throw RuntimeErrorKeyloom("no key state snapshot available");
+                if (!snapshot) throw RuntimeErrorLoomwright("no key state snapshot available");
                 const auto codes = snapshot();
                 const std::set<int> current(codes.begin(), codes.end());
                 const auto previous = device_raw_down_[path];
@@ -293,4 +293,4 @@ void Runtime::physical_key(const std::string& path, const std::string& key, bool
     }
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

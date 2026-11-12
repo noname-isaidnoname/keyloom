@@ -16,7 +16,7 @@
 #include "input.hpp"
 #include "scheduler.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 /// Resolve aliases and upper-case a key name (`ctrl` -> `LEFTCTRL`).
 std::string canonical_key(const std::string& name);
@@ -24,7 +24,7 @@ std::string canonical_key(const std::string& name);
 /// Best-effort virtual desktop size discovery; users can override it.
 std::pair<int, int> detect_screen_size();
 
-/// Interpret `option screen` / `--screen-size`; throws RuntimeErrorKeyloom for
+/// Interpret `option screen` / `--screen-size`; throws RuntimeErrorLoomwright for
 /// anything that is not "auto" or WIDTHxHEIGHT.
 std::pair<int, int> parse_screen_option(const Value* value, std::pair<int, int> fallback);
 
@@ -186,4 +186,4 @@ private:
     std::mt19937_64 random_engine_;
 };
 
-}  // namespace keyloom
+}  // namespace loomwright

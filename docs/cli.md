@@ -6,7 +6,7 @@ exit codes. `src/main.cpp` is a thin wrapper around `run_cli()`.
 ## Surface
 
 ```text
-keyloom [-h] [--init SCRIPT | --check PATH | --run PATH | --docs [TOPIC] | --devices |
+loomwright [-h] [--init SCRIPT | --check PATH | --run PATH | --docs [TOPIC] | --devices |
                --screen | --get-mouse-pos | --list-api | --doctor]
                [--force] [--dry-run] [--input-device EVENT_PATH]
                [--output-backend {auto,ydotool,uinput}] [--screen-size WIDTHxHEIGHT] [--verbose]
@@ -28,8 +28,8 @@ topic.
 | 2 | Usage error, unreadable path, parse error, checker error, `--init` failure, picker startup failure |
 | 130 | Mouse-position pick cancelled |
 
-Bad paths and parse errors print `keyloom: ...` and return 2, not a traceback or
-exit 1. Runtime failures print `keyloom: ...` and return 1.
+Bad paths and parse errors print `loomwright: ...` and return 2, not a traceback or
+exit 1. Runtime failures print `loomwright: ...` and return 1.
 
 ## Commands
 

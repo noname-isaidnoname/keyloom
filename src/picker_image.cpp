@@ -5,7 +5,7 @@
 
 #include "mousepos.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 bool contiguous(uint32_t mask) {
     if (mask == 0) return false;
@@ -57,4 +57,4 @@ PickerPixels convert_picker_pixels(const std::vector<unsigned char>& rgba, int s
     }
     return result;
 }
-}  // namespace keyloom
+}  // namespace loomwright

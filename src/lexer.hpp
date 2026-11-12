@@ -6,7 +6,7 @@
 #include "errors.hpp"
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 enum class TokenKind { Space, Comment, String, Duration, Number, Ident, Op, Newline, Eof };
 
@@ -28,4 +28,4 @@ std::vector<Token> tokenize(const std::string& source);
 /// Decode the language's escape set once (`\\n` stays a backslash plus `n`).
 std::string decode_string(const std::string& body);
 
-}  // namespace keyloom
+}  // namespace loomwright

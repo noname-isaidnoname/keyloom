@@ -2,7 +2,7 @@
 
 #include <unistd.h>
 
-namespace keyloom {
+namespace loomwright {
 
 /// Own an fd across operations that may throw.
 class UniqueFd {
@@ -23,4 +23,4 @@ private:
     int fd_;
 };
 
-}  // namespace keyloom
+}  // namespace loomwright

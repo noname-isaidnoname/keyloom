@@ -28,8 +28,8 @@ int main() {
     const size_t before = fd_count();
     bool disconnected = false;
     try {
-        if (keyloom::pick_mouse_position()) return 1;
-    } catch (const keyloom::PickerError& error) {
+        if (loomwright::pick_mouse_position()) return 1;
+    } catch (const loomwright::PickerError& error) {
         if (!expect_disconnect || std::string(error.what()).find("X11 connection closed") == std::string::npos) {
             std::fprintf(stderr, "%s\n", error.what());
             return 1;

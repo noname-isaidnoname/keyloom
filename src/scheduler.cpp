@@ -11,7 +11,7 @@
 #include <utility>
 #include <unistd.h>
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 Scheduler* g_current = nullptr;
@@ -110,7 +110,7 @@ void Task::Awaiter::await_resume() {
 Scheduler::Scheduler(WaitFunction wait) : wait_(std::move(wait)) {
     if (!wait_) wait_ = ::epoll_wait;
     epoll_fd_ = ::epoll_create1(EPOLL_CLOEXEC);
-    if (epoll_fd_ < 0) throw RuntimeErrorKeyloom("cannot create an epoll instance");
+    if (epoll_fd_ < 0) throw RuntimeErrorLoomwright("cannot create an epoll instance");
 }
 
 Scheduler::~Scheduler() {
@@ -120,7 +120,7 @@ Scheduler::~Scheduler() {
 }
 
 Scheduler& Scheduler::current() {
-    if (g_current == nullptr) throw RuntimeErrorKeyloom("no scheduler is running");
+    if (g_current == nullptr) throw RuntimeErrorLoomwright("no scheduler is running");
     return *g_current;
 }
 
@@ -273,7 +273,7 @@ void ReadableAwaiter::await_resume() {
     scheduler->release_fd(fd, handle);
     scheduler->check_cancelled(handle);
     if (registration_error != 0) {
-        throw RuntimeErrorKeyloom("cannot wait for fd " + std::to_string(fd) + ": " +
+        throw RuntimeErrorLoomwright("cannot wait for fd " + std::to_string(fd) + ": " +
                                   std::strerror(registration_error));
     }
 }
@@ -359,13 +359,13 @@ void Scheduler::run_ready() {
 
 void Scheduler::add_shutdown_dependency(handle_type dependent, handle_type prerequisite) {
     if (!is_live(dependent) || !is_live(prerequisite))
-        throw RuntimeErrorKeyloom("shutdown dependencies require live spawned tasks");
+        throw RuntimeErrorLoomwright("shutdown dependencies require live spawned tasks");
     std::vector<handle_type> pending{prerequisite};
     std::set<handle_type, HandleLess> visited;
     while (!pending.empty()) {
         const handle_type current = pending.back();
         pending.pop_back();
-        if (current == dependent) throw RuntimeErrorKeyloom("cyclic shutdown dependency");
+        if (current == dependent) throw RuntimeErrorLoomwright("cyclic shutdown dependency");
         if (!visited.insert(current).second) continue;
         const auto found = shutdown_dependencies_.find(current);
         if (found != shutdown_dependencies_.end())
@@ -451,7 +451,7 @@ void Scheduler::run() {
             const int error = errno;
             shutdown();
             g_current = previous;
-            throw RuntimeErrorKeyloom("epoll_wait failed: " + std::string(std::strerror(error)));
+            throw RuntimeErrorLoomwright("epoll_wait failed: " + std::string(std::strerror(error)));
         }
 
         const double time_now = now();
@@ -468,4 +468,4 @@ void Scheduler::run() {
     g_current = previous;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -3,7 +3,7 @@
 #include <cctype>
 #include <cstddef>
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 bool is_space(char c) { return c == ' ' || c == '\t' || c == '\r'; }
@@ -266,4 +266,4 @@ std::vector<Token> tokenize(const std::string& source) {
     return out;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -1,6 +1,6 @@
-# Keyloom
+# Loomwright
 
-Keyloom is a Linux-first desktop automation language and native C++20 runtime. Scripts use readable `.loom` syntax, are statically checked before running, and execute on a single epoll-based event loop. The language never evaluates code or shell strings.
+Loomwright is a Linux-first desktop automation language and native C++20 runtime. Scripts use readable `.loom` syntax, are statically checked before running, and execute on a single epoll-based event loop. The language never evaluates code or shell strings.
 
 - **Input:** physical keyboards (and optional mouse buttons) via evdev ioctls on `/dev/input/event*`
 - **Output:** `ydotool`/`ydotoold` (preferred for keys/buttons/text) plus a direct `uinput` device for absolute pointer motion, scroll, and fallback output
@@ -15,15 +15,15 @@ GitHub Releases provides x86-64 Linux Arch `.pkg.tar.zst`, `.deb`, `.rpm`, binar
 `.tar.gz`, AppImage and source archives, plus `SHA256SUMS`. Nightly builds are prereleases
 and may be untested. Verify downloads with `sha256sum -c SHA256SUMS` (download
 all files listed first). Install the native package with your distribution's
-package manager, or extract the binary tarball and run its `bin/keyloom`.
-For the AppImage, `chmod +x keyloom-*.AppImage` and run it with the usual CLI
-arguments, for example `./keyloom-*.AppImage --version`. If FUSE is unavailable,
-use `APPIMAGE_EXTRACT_AND_RUN=1 ./keyloom-*.AppImage --version`.
+package manager, or extract the binary tarball and run its `bin/loomwright`.
+For the AppImage, `chmod +x loomwright-*.AppImage` and run it with the usual CLI
+arguments, for example `./loomwright-*.AppImage --version`. If FUSE is unavailable,
+use `APPIMAGE_EXTRACT_AND_RUN=1 ./loomwright-*.AppImage --version`.
 
 On Arch Linux, install the downloaded Arch package with:
 
 ```bash
-sudo pacman -U ./keyloom-*.pkg.tar.zst
+sudo pacman -U ./loomwright-*.pkg.tar.zst
 ```
 
 The Arch package registers `.loom` files with the desktop and installs a
@@ -35,13 +35,13 @@ build. Packages do not install input permissions or optional
 desktop tools; see the setup and permissions instructions below.
 
 Every native package (Arch, DEB, RPM and the binary tarball) also installs the
-desktop integration files, so Keyloom shows up in your application menu with
+desktop integration files, so Loomwright shows up in your application menu with
 its icon and `*.loom` files can be opened from a file manager:
 
-- an application entry named *Keyloom*,
+- an application entry named *Loomwright*,
 - a scalable icon that follows your theme,
-- the `application/x-keyloom` MIME type for `*.loom` files,
-- `keyloom-terminal`, which runs a script inside a terminal emulator so its
+- the `application/x-loomwright` MIME type for `*.loom` files,
+- `loomwright-terminal`, which runs a script inside a terminal emulator so its
   output stays visible.
 
 The AppImage carries the icon and desktop entry inside the image.
@@ -69,29 +69,29 @@ Build and install:
 PREFIX="$HOME/.local" ./scripts/install.sh        # install into a writable prefix
 ```
 
-`scripts/install.sh` builds and installs Keyloom. It never uses `sudo`. It also
-installs the desktop entry, icon, MIME type and `keyloom-terminal` launcher,
+`scripts/install.sh` builds and installs Loomwright. It never uses `sudo`. It also
+installs the desktop entry, icon, MIME type and `loomwright-terminal` launcher,
 so the application menu and file manager pick them up. To install the binary
 alone, run:
 
 ```bash
-KEYLOOM_CMAKE_ARGS=-DKEYLOOM_DESKTOP_INTEGRATION=OFF ./scripts/install.sh
+LOOMWRIGHT_CMAKE_ARGS=-DLOOMWRIGHT_DESKTOP_INTEGRATION=OFF ./scripts/install.sh
 ```
 
 On Arch-based distributions, you can build and install a native package:
 
 ```bash
 cd packaging/arch
-makepkg -si   # builds and installs keyloom
+makepkg -si   # builds and installs loomwright
 ```
 
 ## Quick start
 
 ```bash
-keyloom --init my-first-script
-keyloom --check my-first-script.loom
-keyloom --docs
-keyloom --run my-first-script.loom
+loomwright --init my-first-script
+loomwright --check my-first-script.loom
+loomwright --docs
+loomwright --run my-first-script.loom
 ```
 
 A script path without an extension receives `.loom`.
@@ -99,17 +99,17 @@ A script path without an extension receives `.loom`.
 ## CLI
 
 ```text
-keyloom --init <script-name> [--force]
-keyloom --check <script-path>
-keyloom --run <script-path> [--dry-run] [--input-device /dev/input/eventN]
+loomwright --init <script-name> [--force]
+loomwright --check <script-path>
+loomwright --run <script-path> [--dry-run] [--input-device /dev/input/eventN]
                 [--output-backend auto|ydotool|uinput] [--screen-size WxH]
-keyloom --get-mouse-pos
-keyloom --docs [topic]
-keyloom --list-api
-keyloom --devices
-keyloom --screen
-keyloom --doctor
-keyloom --version
+loomwright --get-mouse-pos
+loomwright --docs [topic]
+loomwright --list-api
+loomwright --devices
+loomwright --screen
+loomwright --doctor
+loomwright --version
 ```
 
 - `--check` does static checking only; it does not open input devices or start the runtime. It rejects unknown function names, wrong argument counts, `break` outside a loop, and `return` outside a function.
@@ -199,7 +199,7 @@ loom "sample" {
 }
 ```
 
-Run `keyloom --docs` for the full guide. Useful topics: `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, `lists`, `strings`, `functions`, `ahk`.
+Run `loomwright --docs` for the full guide. Useful topics: `events`, `pointer`, `mouse`, `keyboard`, `input`, `desktop`, `flow`, `lists`, `strings`, `functions`, `ahk`.
 
 | Area | Highlights |
 |---|---|
@@ -263,7 +263,7 @@ binding, for example `call set_hotkey_enabled("CTRL+ALT+T", false)`.
 
 ## Runtime setup (evdev + output)
 
-Keyloom reads global physical input through evdev. Output uses `ydotoold` for keys/buttons/text and Keyloom's own `uinput` device for absolute pointer motion.
+Loomwright reads global physical input through evdev. Output uses `ydotoold` for keys/buttons/text and Loomwright's own `uinput` device for absolute pointer motion.
 
 1. **Install/start ydotoold** (required for `ydotool` output):
    ```bash
@@ -274,14 +274,14 @@ Keyloom reads global physical input through evdev. Output uses `ydotoold` for ke
 
 2. **Grant input access**:
    ```bash
-   keyloom --devices
+   loomwright --devices
    ```
-   If event nodes are not readable, configure input-device permissions (for example an `input` group or a narrow udev rule). Log out/in after group changes. Do not run Keyloom as root to bypass permissions.
+   If event nodes are not readable, configure input-device permissions (for example an `input` group or a narrow udev rule). Log out/in after group changes. Do not run Loomwright as root to bypass permissions.
 
 3. **Check coordinates**:
    ```bash
-   keyloom --screen
-   keyloom --get-mouse-pos   # left-click prints x,y; right-click/Esc cancels
+   loomwright --screen
+   loomwright --get-mouse-pos   # left-click prints x,y; right-click/Esc cancels
    ```
    Set `option screen = "WIDTHxHEIGHT"` or pass `--screen-size WIDTHxHEIGHT` if auto-detection is wrong.
 
@@ -290,7 +290,7 @@ Both output backends need `/dev/uinput` access. Pointer motion, scrolling, and k
 ## Backend notes
 
 - `output = "auto"` prefers `ydotool` when the client and daemon socket exist; otherwise it uses `uinput` when writable.
-- `ydotool` handles buttons/keys/text. Keyloom still uses its own absolute `uinput` pointer for `cursor warp`/`move`/`scroll` (ydotool 1.0.x absolute motion is unreliable).
+- `ydotool` handles buttons/keys/text. Loomwright still uses its own absolute `uinput` pointer for `cursor warp`/`move`/`scroll` (ydotool 1.0.x absolute motion is unreliable).
 - `uinput` creates an absolute pointer plus keys/buttons/relative axes. `ydotool` is preferred for non-US layouts and Unicode text.
 - `consume key NAME` grabs the physical keyboard and replays non-consumed events through a virtual passthrough device; the panic key is never consumed.
 

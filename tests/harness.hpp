@@ -10,7 +10,7 @@
 #include <vector>
 #include <unistd.h>
 
-namespace keyloom_test {
+namespace loomwright_test {
 
 struct TestCase {
     std::string name;
@@ -108,17 +108,17 @@ inline std::string strip_trailing_newlines(std::string text) {
 
 int run_all(const std::string& filter = std::string());
 
-}  // namespace keyloom_test
+}  // namespace loomwright_test
 
 #define TEST_CASE(name)                                              \
     static void name();                                              \
-    static ::keyloom_test::Registrar registrar_##name(#name, &name); \
+    static ::loomwright_test::Registrar registrar_##name(#name, &name); \
     static void name()
 
 #define CHECK_TRUE(expression)                                              \
     do {                                                                    \
         if (!(expression)) {                                                \
-            ::keyloom_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__), \
+            ::loomwright_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__), \
                                  "CHECK_TRUE(" #expression ")");       \
         }                                                                   \
     } while (false)
@@ -128,10 +128,10 @@ int run_all(const std::string& filter = std::string());
         const auto& actual_value_ = (actual);                                                   \
         const auto& expected_value_ = (expected);                                               \
         if (!(actual_value_ == expected_value_)) {                                              \
-            ::keyloom_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__),       \
+            ::loomwright_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__),       \
                                  std::string("CHECK_EQ(" #actual ", " #expected ")\n  actual:   ") + \
-                                     ::keyloom_test::to_text(actual_value_) +                   \
-                                     "\n  expected: " + ::keyloom_test::to_text(expected_value_)); \
+                                     ::loomwright_test::to_text(actual_value_) +                   \
+                                     "\n  expected: " + ::loomwright_test::to_text(expected_value_)); \
         }                                                                                       \
     } while (false)
 
@@ -145,7 +145,7 @@ int run_all(const std::string& filter = std::string());
         } catch (...) {                                                            \
         }                                                                          \
         if (!caught_) {                                                            \
-            ::keyloom_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__), \
+            ::loomwright_test::fail(std::string(__FILE__) + ":" + std::to_string(__LINE__), \
                                  "expected " #exception_type " from " #expression); \
         }                                                                          \
     } while (false)

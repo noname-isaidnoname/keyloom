@@ -6,10 +6,10 @@
 #include <unistd.h>
 
 int main() {
-    using namespace keyloom;
+    using namespace loomwright;
     validate_compositor("wayland");
     if (resolve_compositor() != "wayland") return 1;
-    ::setenv("KEYLOOM_WAYLAND_TEST_INTERACTION", "1", 1);
+    ::setenv("LOOMWRIGHT_WAYLAND_TEST_INTERACTION", "1", 1);
     GuiPanel panel{"Native Wayland test", {
         {GuiWidget::Kind::Label, "", "Name", 1},
         {GuiWidget::Kind::Input, "name", "initial", 1},

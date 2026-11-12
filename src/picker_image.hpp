@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 struct PickerPixelFormat {
     int bits_per_pixel;
@@ -23,4 +23,4 @@ struct PickerPixels {
 PickerPixels convert_picker_pixels(const std::vector<unsigned char>& rgba, int source_width, int source_height,
                                    int width, int height, const PickerPixelFormat& format);
 
-}  // namespace keyloom
+}  // namespace loomwright

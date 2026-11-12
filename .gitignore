@@ -1,6 +1,6 @@
 # Build output
 build/
-/keyloom
+/loomwright
 *.o
 *.a
 *.so
@@ -13,8 +13,8 @@ build/
 *.deb
 *.rpm
 *.AppImage
-keyloom-*-x86_64.tar.gz
-keyloom-*-aarch64.tar.gz
+loomwright-*-x86_64.tar.gz
+loomwright-*-aarch64.tar.gz
 packaging/arch/pkg/
 packaging/arch/src/
 

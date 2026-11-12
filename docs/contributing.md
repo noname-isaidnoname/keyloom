@@ -5,7 +5,7 @@
 - C++20, 4-space indentation, small free functions in anonymous namespaces
   where possible, RAII ownership (`std::unique_ptr`, no raw `new`).
 - Explicit exception types: `ParseError` (`src/parser.hpp`), `BackendError`,
-  `RuntimeErrorKeyloom`, `LexError` (`src/errors.hpp`), `CliUsageError`
+  `RuntimeErrorLoomwright`, `LexError` (`src/errors.hpp`), `CliUsageError`
   (`src/cli.hpp`), `PickerError` (`src/mousepos.hpp`).
 - Keep the DSL small. Do not add arbitrary code execution, shell strings, or
   file/network APIs without a deliberate design change.
@@ -30,8 +30,8 @@ The repository must never be in a state where the docs disagree with the build.
 ## Versioning
 
 - Bump the app version in `CMakeLists.txt`
-  (`project(keyloom VERSION X.Y.Z ...)`) — this is the source of truth and
-  defines `KEYLOOM_VERSION`.
+  (`project(loomwright VERSION X.Y.Z ...)`) — this is the source of truth and
+  defines `LOOMWRIGHT_VERSION`.
 - Keep `packaging/arch/PKGBUILD` in sync (`pkgver=X.Y.Z`). Update the example
   package filename wherever it is mentioned if you change it.
 - Choose the bump based on the scope of the change:
@@ -53,7 +53,7 @@ The repository must never be in a state where the docs disagree with the build.
   finished change sitting uncommitted in the working tree for the next agent to
   trip over.
 - Verify before you commit: run `make` (build plus the full test suite) and,
-  when the change touches the language, `keyloom --check` on every script in
+  when the change touches the language, `loomwright --check` on every script in
   `examples/`. Commit only what passes.
 - Keep the commit focused: one logical change per commit, with a message that
   says what changed and why. Reference the version bump in the message when the

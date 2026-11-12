@@ -20,7 +20,7 @@
 #include "picker_image.hpp"
 #include "picker_xcb.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 template <typename T> using Reply = std::unique_ptr<T, decltype(&std::free)>;
@@ -180,7 +180,7 @@ struct Picker {
         const xcb_atom_t states[] = {atom(c, "_NET_WM_STATE_ABOVE"), atom(c, "_NET_WM_STATE_FULLSCREEN")};
         xcb_change_property(c, XCB_PROP_MODE_REPLACE, overlay, type, XCB_ATOM_ATOM, 32, 1, &splash);
         xcb_change_property(c, XCB_PROP_MODE_REPLACE, overlay, state, XCB_ATOM_ATOM, 32, 2, states);
-        constexpr char title[] = "Keyloom mouse position";
+        constexpr char title[] = "Loomwright mouse position";
         xcb_change_property(c, XCB_PROP_MODE_REPLACE, overlay, XCB_ATOM_WM_NAME, XCB_ATOM_STRING, 8, sizeof(title) - 1, title);
 
         font = xcb_generate_id(c);
@@ -345,12 +345,12 @@ std::optional<std::pair<int, int>> pick_mouse_position_with_upload_hook(
     std::unique_ptr<Picker> picker;
     try { picker = std::make_unique<Picker>(); }
     catch (const std::exception&) {
-        throw PickerError("Cannot open a display for the mouse position picker. On Wayland, run it in a session with XWayland and DISPLAY set, or use keyloom --screen to calibrate coordinates manually.");
+        throw PickerError("Cannot open a display for the mouse position picker. On Wayland, run it in a session with XWayland and DISPLAY set, or use loomwright --screen to calibrate coordinates manually.");
     }
     ScreenshotGuard screenshot;
     const CaptureResult capture = capture_desktop();
     screenshot.path = capture.path;
-    if (verbose) std::cerr << "[keyloom] picker screenshot: " << capture.tool << "; screen bounds: " << picker->width << "x" << picker->height << "\n";
+    if (verbose) std::cerr << "[loomwright] picker screenshot: " << capture.tool << "; screen bounds: " << picker->width << "x" << picker->height << "\n";
     const Image image = load_png(capture.path);
     SignalGuard signals;
     picker->check();
@@ -368,4 +368,4 @@ std::optional<std::pair<int, int>> pick_mouse_position_xcb(bool verbose) {
     return pick_mouse_position_with_upload_hook(verbose, {});
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -1,6 +1,6 @@
 # Language internals
 
-The user-facing language reference is `keyloom --docs` (`kGuide` and
+The user-facing language reference is `loomwright --docs` (`kGuide` and
 `api_reference()` in `src/docs.cpp`). This document describes the internal
 shape of the language and how to extend it. Keep the two in sync when the
 language changes.

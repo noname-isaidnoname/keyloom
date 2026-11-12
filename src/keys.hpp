@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace keyloom {
+namespace loomwright {
 
 /// Keyboard aliases accepted in scripts: CTRL, SHIFT, WIN, ESC, PGUP, ...
 const std::unordered_map<std::string, std::string>& key_aliases();
@@ -36,4 +36,4 @@ bool is_mouse_button(const std::string& name);
 /// checker validates the button first; this only normalises a valid name.
 std::string canonical_mouse_event_key(const std::string& name);
 
-}  // namespace keyloom
+}  // namespace loomwright

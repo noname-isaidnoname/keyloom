@@ -9,7 +9,7 @@
 #include "xcb_connection.hpp"
 
 int main() {
-    keyloom::XcbConnection connection;
+    loomwright::XcbConnection connection;
     const int fd = connection.fd();
     std::puts("ready");
     std::fflush(stdout);

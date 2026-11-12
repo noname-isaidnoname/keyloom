@@ -1,6 +1,6 @@
 # Architecture
 
-Keyloom is a Linux-first desktop automation language and its native C++20
+Loomwright is a Linux-first desktop automation language and its native C++20
 runtime. A `.loom` file is parsed, statically checked, and then executed on a
 single epoll-based event loop. There is no interpreter in the hot path: the
 runtime is a set of coroutines (`Task`) driven by one `Scheduler`.
@@ -9,7 +9,7 @@ handled by the same scheduler so a GTK/display failure cannot terminate the
 automation process before its output cleanup.
 
 ```
-loom file → lexer → parser → checker → runtime
+.loom file → lexer → parser → checker → runtime
           src/lexer.cpp → src/parser.cpp → src/checker.cpp → src/runtime*.cpp
 ```
 
@@ -20,7 +20,7 @@ loom file → lexer → parser → checker → runtime
 | `src/lexer.cpp` | tokens, strings, durations, comments |
 | `src/parser.cpp`, `src/parser.hpp`, `src/ast.hpp` | `loom` block, options, `when` events, statements, expressions |
 | `src/checker.cpp` | option values, key names, hold-token balance, `/dev/uinput` warnings |
-| `src/errors.hpp` | exception types: `BackendError`, `RuntimeErrorKeyloom`, `LexError`, `TaskCancelled` |
+| `src/errors.hpp` | exception types: `BackendError`, `RuntimeErrorLoomwright`, `LexError`, `TaskCancelled` |
 | `src/runtime.cpp`, `src/runtime.hpp` | event loop glue, key tracking, dispatch, flow, expressions, hold refcounts |
 | `src/runtime_input.cpp` | device setup, evdev event decoding, passthrough replay, remaps |
 | `src/runtime_output.cpp` | key and text output, mouse and key holds, clipboard, notifications, launching |
@@ -45,20 +45,20 @@ loom file → lexer → parser → checker → runtime
 | `examples/two_spots.loom` | A/D hold regression script used by tests |
 | `tests/*.cpp` | parser, checker, runtime, scheduler, picker and CLI tests (`tests/harness.hpp` mini test runner) |
 | `Makefile` | thin one-word targets (`make`, `make test`, `make install`, `make package`) |
-| `packaging/arch/PKGBUILD` | Arch package built from a local checkout; `check()` runs the test suite only with `KEYLOOM_BUILD_TESTS=ON` |
+| `packaging/arch/PKGBUILD` | Arch package built from a local checkout; `check()` runs the test suite only with `LOOMWRIGHT_BUILD_TESTS=ON` |
 | `packaging/common/` | Shared desktop entry, scalable icon, MIME type, terminal launcher and package post-install scripts installed by CMake |
 
 ## Compilation units
 
-`CMakeLists.txt` builds one static library, `keyloom_core`, from every source
-file except `src/main.cpp`, then links the `keyloom` executable against it.
+`CMakeLists.txt` builds one static library, `loomwright_core`, from every source
+file except `src/main.cpp`, then links the `loomwright` executable against it.
 The runtime was split by concern (`runtime.cpp`, `runtime_input.cpp`,
 `runtime_output.cpp`, `runtime_gui.cpp`) so no single translation unit
 dominates compile time; shared text helpers live in `runtime_internal.hpp`.
 
 The test harness and probes are separate executables. They compile at `-O1`
-(`keyloom_test_options`) because they are not performance critical, while
-`keyloom_core` keeps the release optimisation level. See
+(`loomwright_test_options`) because they are not performance critical, while
+`loomwright_core` keeps the release optimisation level. See
 [benchmark.md](benchmark.md) for the measured effect.
 
 ## Pipeline stages
@@ -135,7 +135,7 @@ dependents before prerequisites and falls back to reverse spawn order.
 ### Input (`src/runtime_input.cpp`, `src/input.cpp`)
 
 `Runtime::open_input_devices()` lists `/dev/input/event*`, opens the readable
-ones, and filters out injected devices by name (`keyloom`, `ydotool`,
+ones, and filters out injected devices by name (`loomwright`, `ydotool`,
 `virtual pointer`, `remap_clicks`). Keyboards are always kept; mice are kept
 only when the script binds a mouse button. Consumed keys are grabbed with
 `EVIOCGRAB`; non-consumed events are replayed through a `PassthroughDevice`.
@@ -200,9 +200,9 @@ coordinates. See [cli.md](cli.md#mouse-position-picker).
 
 ## Build-time integration
 
-`KEYLOOM_VERSION` is defined from `project(keyloom VERSION ...)` in
+`LOOMWRIGHT_VERSION` is defined from `project(loomwright VERSION ...)` in
 `CMakeLists.txt` and is the single source of truth for the version. The
-`keyloom_core` target links X11, XCB and libpng through pkg-config and applies
-the warning flags from `keyloom_options`. See
+`loomwright_core` target links X11, XCB and libpng through pkg-config and applies
+the warning flags from `loomwright_options`. See
 [build-and-install.md](build-and-install.md) and
 [contributing.md](contributing.md#versioning).

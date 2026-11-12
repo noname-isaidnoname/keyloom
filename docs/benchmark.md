@@ -1,6 +1,6 @@
 # Benchmark
 
-Measured build and test performance for Keyloom 0.4.0 on the maintainer's
+Measured build and test performance for Loomwright 0.4.0 on the maintainer's
 machine (CachyOS, KDE Plasma, 4 jobs). Numbers are a snapshot, not a promise:
 always measure before and after a change and keep the evidence with the commit.
 
@@ -15,7 +15,7 @@ always measure before and after a change and keep the evidence with the commit.
 | `gui_integration` | 5.8 s | 4.0 s |
 
 Baseline unit suite: 154 tests in 2.1 s. Current suite: 155 tests in ~2.1 s.
-`keyloom_tests` itself was never the bottleneck; the integration scripts and
+`loomwright_tests` itself was never the bottleneck; the integration scripts and
 the cold build were.
 
 ## What produced the improvement
@@ -45,7 +45,7 @@ broader `graphical_integration` lock; see [testing.md](testing.md).
 
 The build is CPU-bound (195 s of compile edges ÷ 4 cores ≈ the measured wall
 time). The test harness and probes now compile at `-O1`
-(`keyloom_test_options`) while `keyloom_core` keeps `-O3`. The harness is not
+(`loomwright_test_options`) while `loomwright_core` keeps `-O3`. The harness is not
 performance critical, and the code it exercises is still optimized.
 
 ## Approaches measured and rejected
@@ -76,7 +76,7 @@ ctest --preset release -R gui_integration --output-on-failure
 ## Guidance
 
 - Measure before and after. A claim without command output is not evidence.
-- Keep `keyloom_core` at the release optimisation level; only the harness and
+- Keep `loomwright_core` at the release optimisation level; only the harness and
   probes are downgraded.
 - Prefer splitting a translation unit over unity builds or PCH. Both of those
   hid breakage (collisions, stale objects) that was worse than the slow build.

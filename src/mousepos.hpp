@@ -8,7 +8,7 @@
 #include <utility>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 /// The picker cannot start (no display, missing X11, no screenshot tool).
 class PickerError : public std::runtime_error {
@@ -54,4 +54,4 @@ CaptureResult capture_desktop(const ExecutableFinder& finder = ExecutableFinder(
 /// the pick was cancelled.
 std::optional<std::pair<int, int>> pick_mouse_position(bool verbose = false);
 
-}  // namespace keyloom
+}  // namespace loomwright

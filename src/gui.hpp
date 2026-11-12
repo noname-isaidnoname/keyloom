@@ -10,7 +10,7 @@
 #include "ast.hpp"
 #include "xcb_connection.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 /// Check an explicitly requested compositor before starting a script.
 void validate_compositor(const std::string& compositor);
@@ -107,4 +107,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-}  // namespace keyloom
+}  // namespace loomwright

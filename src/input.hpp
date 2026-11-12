@@ -8,7 +8,7 @@
 
 #include "uinput.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 class EventSink;
 
@@ -74,4 +74,4 @@ private:
 /// /dev/input/event* paths in sorted order.
 std::vector<std::string> list_input_devices();
 
-}  // namespace keyloom
+}  // namespace loomwright

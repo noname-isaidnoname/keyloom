@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 /// One built-in expression function. `max_args` of -1 means "any number of
 /// arguments"; otherwise the accepted count is `min_args..max_args`.
@@ -22,4 +22,4 @@ const std::vector<BuiltinInfo>& builtin_functions();
 const BuiltinInfo* find_builtin_function(const std::string& name);
 bool is_builtin_function(const std::string& name);
 
-}  // namespace keyloom
+}  // namespace loomwright

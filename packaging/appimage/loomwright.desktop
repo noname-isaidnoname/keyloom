@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Keyloom
+Name=Loomwright
 Comment=Linux desktop automation language
-Exec=keyloom
-Icon=keyloom
+Exec=loomwright
+Icon=loomwright
 Terminal=true
 Categories=Utility;
 NoDisplay=true

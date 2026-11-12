@@ -9,9 +9,9 @@
 #include "runtime.hpp"
 #include "scheduler.hpp"
 
-using namespace keyloom;
-using keyloom_test::eval_expression;
-using keyloom_test::RecordingBackend;
+using namespace loomwright;
+using loomwright_test::eval_expression;
+using loomwright_test::RecordingBackend;
 
 
 TEST_CASE(evaluates_language_expressions_like_python) {
@@ -35,7 +35,7 @@ TEST_CASE(evaluates_language_expressions_like_python) {
 }
 
 TEST_CASE(executes_statement_flow) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "flow" {
     when app starts {
         set total = 0
@@ -48,7 +48,7 @@ loom "flow" {
         assert total == 4
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -57,7 +57,7 @@ loom "flow" {
 }
 
 TEST_CASE(stops_a_runaway_while_loop) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "runaway" {
     when app starts {
         set count = 0
@@ -66,7 +66,7 @@ loom "runaway" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -75,7 +75,7 @@ loom "runaway" {
 }
 
 TEST_CASE(emits_cursor_and_tap_actions) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "taps" {
     when key A goes down {
         cursor center
@@ -85,7 +85,7 @@ loom "taps" {
         scroll 0, -3
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime::Options options;
     options.screen_size = "1920x1080";
     Runtime runtime(script, options);
@@ -115,9 +115,9 @@ TEST_CASE(screen_option_is_parsed_and_validated) {
     CHECK_EQ(parsed.second, 1440);
 
     const Value invalid = Value::of_str("2560-1440");
-    CHECK_THROWS(parse_screen_option(&invalid, {1920, 1080}), RuntimeErrorKeyloom);
+    CHECK_THROWS(parse_screen_option(&invalid, {1920, 1080}), RuntimeErrorLoomwright);
     const Value not_a_string = Value::of_int(5);
-    CHECK_THROWS(parse_screen_option(&not_a_string, {1920, 1080}), RuntimeErrorKeyloom);
+    CHECK_THROWS(parse_screen_option(&not_a_string, {1920, 1080}), RuntimeErrorLoomwright);
 }
 
 TEST_CASE(split_shell_words_matches_shlex) {
@@ -164,7 +164,7 @@ TEST_CASE(spawn_detached_returns_without_waiting_and_reports_missing_command) {
     CHECK_TRUE(elapsed.count() < 1500);
 
     std::string missing;
-    CHECK_TRUE(!spawn_detached({"/definitely/not/a/keyloom-command"}, missing));
+    CHECK_TRUE(!spawn_detached({"/definitely/not/a/loomwright-command"}, missing));
     CHECK_TRUE(!missing.empty());
 }
 
@@ -189,7 +189,7 @@ TEST_CASE(evaluates_list_and_string_functions) {
 }
 
 TEST_CASE(lists_are_mutable_and_compare_by_value) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "lists" {
     when app starts {
         set items = ["b", "a"]
@@ -199,7 +199,7 @@ loom "lists" {
         set same = items == ["a", "b", "c"]
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -209,7 +209,7 @@ loom "lists" {
 }
 
 TEST_CASE(for_loops_iterate_ranges_and_lists) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "loops" {
     when app starts {
         set total = 0
@@ -231,7 +231,7 @@ loom "loops" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -243,7 +243,7 @@ loom "loops" {
 }
 
 TEST_CASE(break_and_continue_control_loops) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "control" {
     when app starts {
         set visited = ""
@@ -265,7 +265,7 @@ loom "control" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -275,7 +275,7 @@ loom "control" {
 }
 
 TEST_CASE(user_functions_return_values_and_restore_their_scope) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "functions" {
     func double(x) {
         return x * 2
@@ -291,7 +291,7 @@ loom "functions" {
         set after = shadow
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -302,7 +302,7 @@ loom "functions" {
 }
 
 TEST_CASE(user_functions_can_call_each_other) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "recursion" {
     func countdown(n) {
         if n <= 0 {
@@ -314,7 +314,7 @@ loom "recursion" {
         set depth = countdown(4)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -323,7 +323,7 @@ loom "recursion" {
 }
 
 TEST_CASE(runaway_recursion_is_stopped) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "runaway" {
     func loop_forever(n) {
         return loop_forever(n + 1)
@@ -332,7 +332,7 @@ loom "runaway" {
         set value = loop_forever(0)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -341,13 +341,13 @@ loom "runaway" {
 }
 
 TEST_CASE(chord_events_need_their_modifiers) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chords" {
     when key CTRL+ALT+T goes down {
         set fired = 1
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
 
@@ -371,7 +371,7 @@ loom "chords" {
 }
 
 TEST_CASE(chord_bindings_can_be_disabled_by_name) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chords" {
     when key CTRL+ALT+T goes down {
         set fired = 1
@@ -380,7 +380,7 @@ loom "chords" {
         call set_hotkey_enabled("CTRL+ALT+T", false)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.physical_key("fake-keyboard", "F9", true);
@@ -393,7 +393,7 @@ loom "chords" {
 }
 
 TEST_CASE(function_assignments_stay_inside_the_function) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "scope" {
     func helper(x) {
         set doubled = x * 2
@@ -408,7 +408,7 @@ loom "scope" {
         set doubled = reader()
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
@@ -421,7 +421,7 @@ loom "scope" {
 }
 
 TEST_CASE(suspending_hotkeys_keeps_the_chord_binding_enabled) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chords" {
     when key CTRL+ALT+T goes down {
         call suspend_hotkeys(true)
@@ -431,7 +431,7 @@ loom "chords" {
         set other = 1
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.physical_key("fake-keyboard", "LEFTCTRL", true);
@@ -454,13 +454,13 @@ loom "chords" {
 }
 
 TEST_CASE(chord_release_events_fire_when_the_primary_key_is_released) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chords" {
     when key CTRL+ALT+T goes up {
         set released = 1
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.physical_key("fake-keyboard", "LEFTCTRL", true);

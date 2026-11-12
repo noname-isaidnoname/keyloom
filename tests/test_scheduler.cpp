@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-using namespace keyloom;
+using namespace loomwright;
 
 namespace {
 
@@ -177,7 +177,7 @@ Task wait_on_pipe(int fd, bool& awakened) {
 Task duplicate_pipe_wait(int fd, bool& rejected) {
     try {
         co_await readable(fd);
-    } catch (const RuntimeErrorKeyloom&) {
+    } catch (const RuntimeErrorLoomwright&) {
         rejected = true;
     }
 }
@@ -286,12 +286,12 @@ TEST_CASE(shutdown_dependency_rejects_cycles_and_non_live_tasks) {
     scheduler.spawn(first);
     scheduler.spawn(second);
     scheduler.add_shutdown_dependency(first.handle, second.handle);
-    CHECK_THROWS(scheduler.add_shutdown_dependency(second.handle, first.handle), RuntimeErrorKeyloom);
-    CHECK_THROWS(scheduler.add_shutdown_dependency(first.handle, first.handle), RuntimeErrorKeyloom);
+    CHECK_THROWS(scheduler.add_shutdown_dependency(second.handle, first.handle), RuntimeErrorLoomwright);
+    CHECK_THROWS(scheduler.add_shutdown_dependency(first.handle, first.handle), RuntimeErrorLoomwright);
     scheduler.run_ready();
     scheduler.shutdown();
     CHECK_TRUE(order == std::vector<int>({2, 1, 3}));
-    CHECK_THROWS(scheduler.add_shutdown_dependency(first.handle, second.handle), RuntimeErrorKeyloom);
+    CHECK_THROWS(scheduler.add_shutdown_dependency(first.handle, second.handle), RuntimeErrorLoomwright);
 }
 
 TEST_CASE(tasks_spawned_during_execution_depend_on_their_spawning_root) {
@@ -301,7 +301,7 @@ TEST_CASE(tasks_spawned_during_execution_depend_on_their_spawning_root) {
     Task owner = owner_spawning_background(scheduler, child, order);
     scheduler.spawn(owner);
     scheduler.run_ready();
-    CHECK_THROWS(scheduler.add_shutdown_dependency(owner.handle, child), RuntimeErrorKeyloom);
+    CHECK_THROWS(scheduler.add_shutdown_dependency(owner.handle, child), RuntimeErrorLoomwright);
     scheduler.shutdown();
     CHECK_TRUE(order == std::vector<int>({3, 4}));
 }
@@ -342,10 +342,10 @@ TEST_CASE(fatal_epoll_error_destroys_tasks_and_is_reported) {
         return -1;
     });
     scheduler.spawn(suspended_parent(order));
-    CHECK_THROWS(scheduler.run(), RuntimeErrorKeyloom);
+    CHECK_THROWS(scheduler.run(), RuntimeErrorLoomwright);
     CHECK_TRUE(order == std::vector<int>({2, 1}));
     CHECK_EQ(scheduler.live_count(), static_cast<size_t>(0));
-    CHECK_THROWS(Scheduler::current(), RuntimeErrorKeyloom);
+    CHECK_THROWS(Scheduler::current(), RuntimeErrorLoomwright);
 }
 
 namespace {

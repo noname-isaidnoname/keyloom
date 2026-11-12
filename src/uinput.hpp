@@ -7,7 +7,7 @@
 #include <vector>
 #include <sys/types.h>
 
-namespace keyloom {
+namespace loomwright {
 
 struct AbsAxis {
     int code = 0;
@@ -85,4 +85,4 @@ using VirtualInputFactory =
 std::unique_ptr<VirtualInput> create_uinput_from_capabilities(const std::string& name, const std::string& phys,
                                                              const DeviceCapabilities& capabilities);
 
-}  // namespace keyloom
+}  // namespace loomwright

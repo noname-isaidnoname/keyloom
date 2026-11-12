@@ -4,7 +4,7 @@
 #include <utility>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 /// The full `--docs` guide.
 const std::string& language_guide();
@@ -14,4 +14,4 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& api_referen
 
 std::string render_docs(const std::string& topic);
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -7,7 +7,7 @@
 
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 struct Expr;
 using ExprPtr = std::shared_ptr<Expr>;
@@ -138,4 +138,4 @@ struct Script {
     }
 };
 
-}  // namespace keyloom
+}  // namespace loomwright

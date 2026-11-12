@@ -55,24 +55,24 @@ jobs:
           for format in source tar deb rpm appimage; do scripts/package.sh "$format"; done
           mkdir -p /tmp/deb-test /tmp/rpm-test /tmp/tar-test
           dpkg-deb -x build/artifacts/*.deb /tmp/deb-test
-          /tmp/deb-test/usr/bin/keyloom --version
+          /tmp/deb-test/usr/bin/loomwright --version
           (cd /tmp/rpm-test && rpm2cpio "$GITHUB_WORKSPACE"/build/artifacts/*.rpm | cpio -idm --quiet)
-          /tmp/rpm-test/usr/bin/keyloom --version
+          /tmp/rpm-test/usr/bin/loomwright --version
           tar -xzf build/artifacts/*-x86_64.tar.gz -C /tmp/tar-test
-          find /tmp/tar-test -type f -name keyloom -exec {} --version \;
+          find /tmp/tar-test -type f -name loomwright -exec {} --version \;
           APPIMAGE_EXTRACT_AND_RUN=1 build/artifacts/*.AppImage --version
       - name: Check the desktop integration files
         run: |
           set -euo pipefail
           for root in /tmp/deb-test /tmp/rpm-test; do
-            test -f "$root/usr/share/applications/keyloom.desktop"
-            test -f "$root/usr/share/icons/hicolor/scalable/apps/keyloom.svg"
-            test -f "$root/usr/share/mime/packages/keyloom.xml"
-            test -x "$root/usr/bin/keyloom-terminal"
-            desktop-file-validate "$root/usr/share/applications/keyloom.desktop"
+            test -f "$root/usr/share/applications/loomwright.desktop"
+            test -f "$root/usr/share/icons/hicolor/scalable/apps/loomwright.svg"
+            test -f "$root/usr/share/mime/packages/loomwright.xml"
+            test -x "$root/usr/bin/loomwright-terminal"
+            desktop-file-validate "$root/usr/share/applications/loomwright.desktop"
           done
-          desktop-file-validate packaging/common/keyloom.desktop
-          desktop-file-validate packaging/appimage/keyloom.desktop
+          desktop-file-validate packaging/common/loomwright.desktop
+          desktop-file-validate packaging/appimage/loomwright.desktop
       - uses: actions/upload-artifact@v4
         with:
           name: release-files
@@ -94,35 +94,35 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
-          path: /tmp/keyloom-ccache
+          path: /tmp/loomwright-ccache
           key: arch-x86_64-ccache-${{ github.sha }}
           restore-keys: arch-x86_64-ccache-
       - name: Build Arch package as an unprivileged user
         run: |
-          useradd --create-home keyloom-builder
-          mkdir -p /tmp/keyloom-ccache /tmp/keyloom-artifacts
-          chown -R keyloom-builder:keyloom-builder /tmp/keyloom-ccache /tmp/keyloom-artifacts
-          runuser -u keyloom-builder -- env CCACHE_DIR=/tmp/keyloom-ccache CMAKE_BUILD_PARALLEL_LEVEL=2 KEYLOOM_PACKAGE_OUT=/tmp/keyloom-artifacts "$GITHUB_WORKSPACE/scripts/package-arch.sh"
+          useradd --create-home loomwright-builder
+          mkdir -p /tmp/loomwright-ccache /tmp/loomwright-artifacts
+          chown -R loomwright-builder:loomwright-builder /tmp/loomwright-ccache /tmp/loomwright-artifacts
+          runuser -u loomwright-builder -- env CCACHE_DIR=/tmp/loomwright-ccache CMAKE_BUILD_PARALLEL_LEVEL=2 LOOMWRIGHT_PACKAGE_OUT=/tmp/loomwright-artifacts "$GITHUB_WORKSPACE/scripts/package-arch.sh"
       - name: Install and smoke test Arch package
         run: |
           shopt -s nullglob
-          packages=(/tmp/keyloom-artifacts/keyloom-*.pkg.tar.zst)
+          packages=(/tmp/loomwright-artifacts/loomwright-*.pkg.tar.zst)
           [[ ${#packages[@]} -eq 1 ]] || { echo 'Expected exactly one Arch package' >&2; exit 1; }
           pacman -U --noconfirm "${packages[0]}"
-          pacman -Q keyloom
-          keyloom --version
-          keyloom --check "$GITHUB_WORKSPACE/examples/two_spots.loom"
-          ldd /usr/bin/keyloom | grep -q 'libgtk-3.so'
-          test -f /usr/share/applications/keyloom.desktop
-          test -f /usr/share/icons/hicolor/scalable/apps/keyloom.svg
-          test -f /usr/share/mime/packages/keyloom.xml
-          test -x /usr/bin/keyloom-terminal
-          desktop-file-validate /usr/share/applications/keyloom.desktop
-          xdg-mime query default application/x-keyloom | grep -qx keyloom.desktop
+          pacman -Q loomwright
+          loomwright --version
+          loomwright --check "$GITHUB_WORKSPACE/examples/two_spots.loom"
+          ldd /usr/bin/loomwright | grep -q 'libgtk-3.so'
+          test -f /usr/share/applications/loomwright.desktop
+          test -f /usr/share/icons/hicolor/scalable/apps/loomwright.svg
+          test -f /usr/share/mime/packages/loomwright.xml
+          test -x /usr/bin/loomwright-terminal
+          desktop-file-validate /usr/share/applications/loomwright.desktop
+          xdg-mime query default application/x-loomwright | grep -qx loomwright.desktop
       - uses: actions/upload-artifact@v4
         with:
           name: arch-package
-          path: /tmp/keyloom-artifacts/*.pkg.tar.zst
+          path: /tmp/loomwright-artifacts/*.pkg.tar.zst
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -147,11 +147,11 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          for file in "keyloom-$VERSION-source.tar.gz" "keyloom-$VERSION-x86_64.tar.gz" "keyloom-$VERSION-x86_64.deb" "keyloom-$VERSION-x86_64.rpm" "keyloom-$VERSION-x86_64.AppImage"; do
+          for file in "loomwright-$VERSION-source.tar.gz" "loomwright-$VERSION-x86_64.tar.gz" "loomwright-$VERSION-x86_64.deb" "loomwright-$VERSION-x86_64.rpm" "loomwright-$VERSION-x86_64.AppImage"; do
             [[ -s "$file" ]] || { echo "Missing $file" >&2; exit 1; }
           done
           shopt -s nullglob
-          arch=("keyloom-$VERSION"-*-x86_64.pkg.tar.zst)
+          arch=("loomwright-$VERSION"-*-x86_64.pkg.tar.zst)
           [[ ${#arch[@]} -eq 1 && -s ${arch[0]} ]] || { echo 'Expected one matching Arch package' >&2; exit 1; }
           files=(*)
           [[ ${#files[@]} -eq 6 ]] || { echo 'Expected exactly six release artifacts' >&2; exit 1; }
@@ -195,9 +195,9 @@ jobs:
             if [[ -n "$DESCRIPTION" ]]; then
               printf '%s\n\n' "$DESCRIPTION" > /tmp/release-notes.md
             else
-              printf 'Keyloom %s for Linux.\n\n' "$VERSION" > /tmp/release-notes.md
+              printf 'Loomwright %s for Linux.\n\n' "$VERSION" > /tmp/release-notes.md
             fi
             append_downloads
             printf '\nBuilt from commit `%s`.\n' "$SHA" >> /tmp/release-notes.md
-            gh release create "v$VERSION" artifacts/* --target "$SHA" --title "Keyloom $VERSION" --notes-file /tmp/release-notes.md
+            gh release create "v$VERSION" artifacts/* --target "$SHA" --title "Loomwright $VERSION" --notes-file /tmp/release-notes.md
           fi

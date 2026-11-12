@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-out=${KEYLOOM_PACKAGE_OUT:-"$root/build/artifacts"}
+out=${LOOMWRIGHT_PACKAGE_OUT:-"$root/build/artifacts"}
 if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
     echo 'makepkg must run as an unprivileged user; install dependencies separately' >&2
     exit 1
@@ -15,10 +15,10 @@ pkgver=$(sed -n 's/^pkgver=\([0-9][0-9.]*\)$/\1/p' "$root/packaging/arch/PKGBUIL
 }
 mkdir -p "$out"
 out=$(cd "$out" && pwd)
-work=$(mktemp -d "${TMPDIR:-/tmp}/keyloom-arch.XXXXXXXX")
+work=$(mktemp -d "${TMPDIR:-/tmp}/loomwright-arch.XXXXXXXX")
 trap 'rm -rf -- "$work"' EXIT
 cp "$root/packaging/arch/PKGBUILD" "$work/PKGBUILD"
 cd "$work"
 # Build from the checkout but keep makepkg's writable workspace separate.
 # Dependencies must already be installed; this script never escalates privileges.
-KEYLOOM_SOURCE_DIR="$root" PKGDEST="$out" makepkg --noconfirm --clean
+LOOMWRIGHT_SOURCE_DIR="$root" PKGDEST="$out" makepkg --noconfirm --clean

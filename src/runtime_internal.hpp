@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 namespace detail {
 
 /// Shared text helpers. They live in a header so the runtime's translation
@@ -43,4 +43,4 @@ inline std::vector<std::string> split_on(const std::string& text, char separator
 }
 
 }  // namespace detail
-}  // namespace keyloom
+}  // namespace loomwright

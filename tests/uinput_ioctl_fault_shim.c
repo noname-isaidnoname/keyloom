@@ -10,7 +10,7 @@
 typedef int (*ioctl_fn)(int, unsigned long, ...);
 
 static unsigned long target_request(void) {
-    const char* step = getenv("KEYLOOM_FAIL_UIOCTL_STEP");
+    const char* step = getenv("LOOMWRIGHT_FAIL_UIOCTL_STEP");
     if (!step || !*step) return 0;
     if (strcmp(step, "UI_SET_EVBIT EV_KEY") == 0) return UI_SET_EVBIT;
     if (strcmp(step, "UI_SET_EVBIT EV_REL") == 0) return UI_SET_EVBIT;
@@ -38,7 +38,7 @@ int ioctl(int fd, unsigned long request, ...) {
     unsigned long arg = va_arg(ap, unsigned long);
     va_end(ap);
 
-    const char* step = getenv("KEYLOOM_FAIL_UIOCTL_STEP");
+    const char* step = getenv("LOOMWRIGHT_FAIL_UIOCTL_STEP");
     if (step && *step) {
         if (target_arg_matches(step, request, arg)) {
             errno = EIO;

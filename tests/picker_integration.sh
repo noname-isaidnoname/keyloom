@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real end-to-end test for `keyloom --get-mouse-pos`.
+# Real end-to-end test for `loomwright --get-mouse-pos`.
 #
 # It starts a private X server (Xwayland or Xvfb), shows the actual picker in
 # it, sends real X button/key events to the overlay, and checks the printed
@@ -12,10 +12,10 @@
 set -u
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-BIN=${KEYLOOM_BIN:-$ROOT/build/release/keyloom}
-EVENT=${KEYLOOM_PICKER_EVENT:-$ROOT/build/release/picker_event}
-LIFECYCLE=${KEYLOOM_PICKER_LIFECYCLE:-$ROOT/build/release/picker_lifecycle}
-UPLOAD_PROBE=${KEYLOOM_PICKER_UPLOAD_PROBE:-$ROOT/build/release/picker_upload_probe}
+BIN=${LOOMWRIGHT_BIN:-$ROOT/build/release/loomwright}
+EVENT=${LOOMWRIGHT_PICKER_EVENT:-$ROOT/build/release/picker_event}
+LIFECYCLE=${LOOMWRIGHT_PICKER_LIFECYCLE:-$ROOT/build/release/picker_lifecycle}
+UPLOAD_PROBE=${LOOMWRIGHT_PICKER_UPLOAD_PROBE:-$ROOT/build/release/picker_upload_probe}
 D=${PICKER_TEST_DISPLAY:-}
 # The display numbers this run may use, as a comma separated list. The two
 # picker variants get their own range so they can run at the same time.
@@ -28,12 +28,12 @@ UPLOAD_DIR=
 UPLOAD_PID=
 SCREEN=1368x768
 SCREEN_DEPTH=${PICKER_TEST_DEPTH:-24}
-TITLE="Keyloom mouse position"
+TITLE="Loomwright mouse position"
 
 skip() { echo "SKIP: $*"; exit 77; }
 fail() { echo "FAIL: $*"; exit 1; }
 
-[[ -x "$BIN" ]] || fail "build keyloom first (expected $BIN)"
+[[ -x "$BIN" ]] || fail "build loomwright first (expected $BIN)"
 [[ -x "$EVENT" ]] || skip "build the picker_event helper first (expected $EVENT)"
 [[ -x "$LIFECYCLE" ]] || skip "build the picker_lifecycle helper first (expected $LIFECYCLE)"
 [[ -x "$UPLOAD_PROBE" ]] || skip "build the picker_upload_probe helper first (expected $UPLOAD_PROBE)"

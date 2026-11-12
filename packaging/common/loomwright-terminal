@@ -1,18 +1,18 @@
 #!/bin/sh
-# Run keyloom on a script inside a terminal emulator so its output stays
+# Run loomwright on a script inside a terminal emulator so its output stays
 # visible after the file manager launches it (e.g. double-clicking a .loom
 # file) or after the application menu starts it.
 #
-#   keyloom-terminal [--] [SCRIPT] [keyloom args...]
+#   loomwright-terminal [--] [SCRIPT] [loomwright args...]
 #
-# Without a script, keyloom is started with no arguments and prints its help.
+# Without a script, loomwright is started with no arguments and prints its help.
 # The terminal is detected at runtime: $TERMINAL (colon-separated, per the
 # freedesktop terminal spec) is tried first, then a list of common emulators.
-# If none is found, keyloom runs in the foreground anyway.
+# If none is found, loomwright runs in the foreground anyway.
 set -eu
 
 usage() {
-    echo 'usage: keyloom-terminal [--] [SCRIPT] [keyloom args...]' >&2
+    echo 'usage: loomwright-terminal [--] [SCRIPT] [loomwright args...]' >&2
     exit 2
 }
 
@@ -27,7 +27,7 @@ if [ $# -ge 1 ] && [ "${1#-}" = "$1" ]; then
 fi
 
 try_terminal() {
-    # $1 is "exe [prefix args...]"; the remaining args go to keyloom.
+    # $1 is "exe [prefix args...]"; the remaining args go to loomwright.
     line=$1
     shift
     case $line in
@@ -38,9 +38,9 @@ try_terminal() {
     # prefix is a fixed list of argument words without spaces.
     # shellcheck disable=SC2086
     if [ -n "$script" ]; then
-        exec $exe $prefix keyloom "$script" "$@"
+        exec $exe $prefix loomwright "$script" "$@"
     fi
-    exec $exe $prefix keyloom "$@"
+    exec $exe $prefix loomwright "$@"
 }
 
 if [ -n "${TERMINAL:-}" ]; then
@@ -70,8 +70,8 @@ do
     try_terminal "$entry" "$@" && exit 0
 done
 
-echo 'keyloom-terminal: no terminal emulator found; running keyloom directly' >&2
+echo 'loomwright-terminal: no terminal emulator found; running loomwright directly' >&2
 if [ -n "$script" ]; then
-    exec keyloom "$script" "$@"
+    exec loomwright "$script" "$@"
 fi
-exec keyloom "$@"
+exec loomwright "$@"

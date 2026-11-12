@@ -12,7 +12,7 @@
 #include "parser.hpp"
 #include "value.hpp"
 
-using namespace keyloom;
+using namespace loomwright;
 
 namespace {
 
@@ -40,7 +40,7 @@ bool has_message_containing(const std::vector<Diagnostic>& diagnostics, const st
 }  // namespace
 
 TEST_CASE(parse_two_spots_example) {
-    const std::string source = R"LOOM(
+    const std::string source = R"LOOMWRIGHT(
 loom "two-spots" {
     option input = "evdev"
     option output = "auto"
@@ -60,7 +60,7 @@ loom "two-spots" {
         mouse left free as spot_d
     }
 }
-)LOOM";
+)LOOMWRIGHT";
     const Script script = parse(source);
     CHECK_EQ(script.name, std::string("two-spots"));
     CHECK_EQ(script.events.size(), static_cast<size_t>(4));
@@ -74,7 +74,7 @@ loom "two-spots" {
 }
 
 TEST_CASE(parse_nested_flow_and_expressions) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "flow" {
     when app starts {
         set count = 3
@@ -87,7 +87,7 @@ loom "flow" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.at(0).body.at(0).kind_name(), std::string("set"));
     CHECK_EQ(script.events.at(0).body.at(1).kind_name(), std::string("if"));
     CHECK_EQ(script.events.at(0).body.at(1).body.at(0).kind_name(), std::string("repeat"));
@@ -95,13 +95,13 @@ loom "flow" {
 }
 
 TEST_CASE(parse_held_timer_event) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "held" {
     when key F8 stays held every 50ms {
         log "held"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const Node& event = script.events.at(0);
     CHECK_EQ(event.event_kind, std::string("key"));
     CHECK_EQ(event.event_key, std::string("F8"));
@@ -110,12 +110,12 @@ loom "held" {
 }
 
 TEST_CASE(parse_timer_and_app_events) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "timers" {
     when timer every 1.5s { log "tick" }
     when app starts { log "start" }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.at(0).interval, 1.5);
     CHECK_EQ(script.events.at(0).edge, std::string("tick"));
     CHECK_EQ(script.events.at(1).edge, std::string("starts"));
@@ -139,7 +139,7 @@ TEST_CASE(rejects_unclosed_blocks) {
 }
 
 TEST_CASE(static_check_accepts_the_spot_example) {
-    const std::string path = std::string(KEYLOOM_SOURCE_DIR) + "/examples/two_spots.loom";
+    const std::string path = std::string(LOOMWRIGHT_SOURCE_DIR) + "/examples/two_spots.loom";
     const Script script = parse(read_file(path), path);
     const auto diagnostics = check_script(script);
     CHECK_TRUE(!has_error(diagnostics));
@@ -163,13 +163,13 @@ TEST_CASE(compositor_option_accepts_auto_x11_and_wayland) {
 }
 
 TEST_CASE(static_check_rejects_unknown_options_and_values) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-options" {
     option output = "tape"
     option nonsense = 1
     when app starts { log "x" }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown option 'nonsense'"));
@@ -177,25 +177,25 @@ loom "bad-options" {
 }
 
 TEST_CASE(static_check_rejects_unknown_panic_key) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-panic" {
     option panic = "NOT_A_KEY_XYZ"
     when app starts { log "x" }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOT_A_KEY_XYZ'"));
 }
 
 TEST_CASE(static_check_rejects_unknown_keys_and_buttons) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-keys" {
     when key NOTAKEY goes down {
         mouse pinky hold as token
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOTAKEY'"));
@@ -203,7 +203,7 @@ loom "bad-keys" {
 }
 
 TEST_CASE(sees_else_on_the_next_line) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "else-line" {
     when app starts {
         if true {
@@ -214,19 +214,19 @@ loom "else-line" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.at(0).body.at(0).otherwise.size(), static_cast<size_t>(1));
 }
 
 TEST_CASE(parses_arithmetic_without_spaces) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "math" {
     when app starts {
         set count = 5-2
         assert count == 3
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto& expression = script.events.at(0).body.at(0).exprs.at(0);
     CHECK_TRUE(expression->kind == Expr::Kind::Binary);
     CHECK_EQ(expression->name, std::string("-"));
@@ -242,26 +242,26 @@ TEST_CASE(decodes_string_escapes_once) {
 }
 
 TEST_CASE(parses_numeric_keys_and_chords) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "numeric-keys" {
     when key 1 goes down {
         key CTRL+1 tap for 50ms
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.at(0).event_key, std::string("1"));
     CHECK_EQ(script.events.at(0).body.at(0).a, std::string("CTRL+1"));
     CHECK_EQ(script.events.at(0).body.at(0).duration, 0.05);
 }
 
 TEST_CASE(parses_and_checks_native_remaps) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "remap-check" {
     remap key Q to SPACE
     remap key A to CTRL+B
     when app starts { log "ready" }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.remaps.size(), static_cast<size_t>(2));
     CHECK_EQ(script.remaps.at(0).source, std::string("Q"));
     CHECK_EQ(script.remaps.at(1).target, std::string("CTRL+B"));
@@ -271,14 +271,14 @@ loom "remap-check" {
 }
 
 TEST_CASE(static_check_rejects_remap_conflicts) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-remap" {
     option panic = "Q"
     remap key Q to SPACE
     remap key A to NOT_A_KEY_XYZ
     when key A goes down { log "bound" }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Remap source Q is the panic key"));
@@ -292,7 +292,7 @@ TEST_CASE(static_check_rejects_spaced_remap_syntax) {
 }
 
 TEST_CASE(parses_gui_panels_and_events) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "gui-parse" {
     gui "Example Panel" {
         label "Name:"
@@ -308,7 +308,7 @@ loom "gui-parse" {
         log "closed"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.panels.size(), static_cast<size_t>(1));
     const auto& panel = script.panels.front();
     CHECK_EQ(panel.widgets.size(), static_cast<size_t>(3));
@@ -320,7 +320,7 @@ loom "gui-parse" {
 }
 
 TEST_CASE(static_check_rejects_gui_declaration_errors) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-gui" {
     gui "Duplicate" {
         input shared = "one"
@@ -333,7 +333,7 @@ loom "bad-gui" {
         log "clicked"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'shared' is declared more than once"));
@@ -342,67 +342,67 @@ loom "bad-gui" {
 }
 
 TEST_CASE(parses_send_statements) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "send-statement" {
     when app starts {
         send "hello{enter}"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const Node& node = script.events.at(0).body.at(0);
     CHECK_EQ(node.kind_name(), std::string("send"));
     CHECK_EQ(node.exprs.size(), static_cast<size_t>(1));
 }
 
 TEST_CASE(parses_consume_statements) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "consume" {
     when key A goes down {
         consume key A
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const Node& node = script.events.at(0).body.at(0);
     CHECK_EQ(node.kind_name(), std::string("consume"));
     CHECK_EQ(node.a, std::string("A"));
 }
 
 TEST_CASE(checks_whole_script_consumption_and_panic_passthrough) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "consume" {
     option panic = "A"
     when key A goes down { consume key A }
     when key D goes down { consume key D }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(!has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "never consumed"));
 }
 
 TEST_CASE(reports_unbalanced_hold_tokens) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "holds" {
     when key A goes down {
         mouse left hold as stuck
         mouse right free as missing
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token 'stuck' is never freed"));
     CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token 'missing' is freed but never held"));
 }
 
 TEST_CASE(parses_durations_and_bare_numbers) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "durations" {
     when app starts {
         wait 250ms
         wait 2
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.at(0).body.at(0).duration, 0.25);
     CHECK_EQ(script.events.at(0).body.at(1).duration, 2.0);
 }
@@ -421,7 +421,7 @@ TEST_CASE(lexer_reports_unexpected_characters_with_a_position) {
 }
 
 TEST_CASE(parses_mouse_button_events) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "mouse" {
     when mouse left goes down {
         log "left down"
@@ -433,7 +433,7 @@ loom "mouse" {
         log "middle held"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.events.size(), static_cast<size_t>(3));
     CHECK_EQ(script.events.at(0).event_kind, std::string("mouse"));
     CHECK_EQ(script.events.at(0).event_key, std::string("left"));
@@ -447,13 +447,13 @@ loom "mouse" {
 }
 
 TEST_CASE(checker_rejects_unknown_mouse_buttons) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "bad-mouse" {
     when mouse backwards goes down {
         log "never"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown mouse button"));
@@ -472,7 +472,7 @@ TEST_CASE(formats_python_style_values) {
 }
 
 TEST_CASE(parses_list_literals_and_subscripts) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "lists" {
     when app starts {
         set items = ["alpha", "beta"]
@@ -481,7 +481,7 @@ loom "lists" {
         set last = items[-1]
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const std::vector<Node>& body = script.events.at(0).body;
     CHECK_EQ(body.at(0).kind_name(), std::string("set"));
     CHECK_TRUE(body.at(0).exprs.at(0)->kind == Expr::Kind::List);
@@ -492,7 +492,7 @@ loom "lists" {
 }
 
 TEST_CASE(parses_for_loops_and_loop_control) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "loops" {
     when app starts {
         for i = 1 to 10 {
@@ -508,7 +508,7 @@ loom "loops" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const std::vector<Node>& body = script.events.at(0).body;
     CHECK_EQ(body.at(0).kind_name(), std::string("for"));
     CHECK_EQ(body.at(0).a, std::string("i"));
@@ -523,7 +523,7 @@ loom "loops" {
 }
 
 TEST_CASE(parses_user_defined_functions) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "functions" {
     func double(x) {
         return x * 2
@@ -536,7 +536,7 @@ loom "functions" {
         set value = double(21)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     CHECK_EQ(script.functions.size(), static_cast<size_t>(2));
     CHECK_EQ(script.functions.at(0).name, std::string("double"));
     CHECK_EQ(script.functions.at(0).params.size(), static_cast<size_t>(1));
@@ -545,7 +545,7 @@ loom "functions" {
 }
 
 TEST_CASE(parses_else_if_chains) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chain" {
     when app starts {
         if false {
@@ -557,7 +557,7 @@ loom "chain" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const Node& node = script.events.at(0).body.at(0);
     CHECK_EQ(node.otherwise.size(), static_cast<size_t>(1));
     CHECK_EQ(node.otherwise.at(0).kind_name(), std::string("if"));
@@ -565,7 +565,7 @@ loom "chain" {
 }
 
 TEST_CASE(parses_chord_key_events) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "chords" {
     when key CTRL+ALT+T goes down {
         log "chord"
@@ -574,7 +574,7 @@ loom "chords" {
         log "plain"
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const Node& chord = script.events.at(0);
     CHECK_EQ(chord.event_key, std::string("T"));
     CHECK_EQ(chord.chord_parts.size(), static_cast<size_t>(3));
@@ -584,20 +584,20 @@ loom "chords" {
 }
 
 TEST_CASE(static_check_rejects_unknown_functions) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "unknown" {
     when app starts {
         set value = no_such_function(1)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown function 'no_such_function'"));
 }
 
 TEST_CASE(static_check_rejects_wrong_argument_counts) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "arity" {
     func double(x) {
         return x * 2
@@ -607,7 +607,7 @@ loom "arity" {
         set b = double(1, 2)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Function clamp() takes 3 argument(s), got 2"));
@@ -615,7 +615,7 @@ loom "arity" {
 }
 
 TEST_CASE(static_check_rejects_duplicate_and_shadowing_functions) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "dupes" {
     func helper(a) {
         return a
@@ -630,7 +630,7 @@ loom "dupes" {
         set value = helper(1)
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Function 'helper' is declared more than once"));
@@ -638,14 +638,14 @@ loom "dupes" {
 }
 
 TEST_CASE(static_check_rejects_loop_control_outside_a_loop) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "loose" {
     when app starts {
         break
         continue
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "break is only allowed inside a loop"));
@@ -653,20 +653,20 @@ loom "loose" {
 }
 
 TEST_CASE(static_check_rejects_return_outside_a_function) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "loose" {
     when app starts {
         return 1
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "return is only allowed inside a function"));
 }
 
 TEST_CASE(static_check_accepts_the_new_language_surface) {
-    const Script script = parse(R"LOOM(
+    const Script script = parse(R"LOOMWRIGHT(
 loom "modern" {
     option panic = "PAUSE"
     func double(x) {
@@ -688,7 +688,7 @@ loom "modern" {
         }
     }
 }
-)LOOM");
+)LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(!has_error(diagnostics));
 }

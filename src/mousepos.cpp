@@ -7,7 +7,7 @@
 
 #include "subprocess.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 const char* const kScreenshotTools[] = {"spectacle", "grim", "gnome-screenshot", "scrot", "import"};
 }
@@ -57,7 +57,7 @@ std::vector<std::vector<std::string>> screenshot_commands(const std::string& pat
 }
 
 CaptureResult capture_desktop(const ExecutableFinder& finder) {
-    char template_path[] = "/tmp/keyloom-picker-XXXXXX.png";
+    char template_path[] = "/tmp/loomwright-picker-XXXXXX.png";
     const int handle = ::mkstemps(template_path, 4);
     if (handle < 0) throw PickerError(std::string("Could not create a screenshot file: ") + std::strerror(errno));
     ::close(handle);
@@ -92,4 +92,4 @@ CaptureResult capture_desktop(const ExecutableFinder& finder) {
 std::optional<std::pair<int, int>> pick_mouse_position_xcb(bool verbose);
 std::optional<std::pair<int, int>> pick_mouse_position(bool verbose) { return pick_mouse_position_xcb(verbose); }
 
-}  // namespace keyloom
+}  // namespace loomwright

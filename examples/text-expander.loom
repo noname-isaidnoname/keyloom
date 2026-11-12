@@ -1,4 +1,4 @@
-# A text expander: type a short trigger and Keyloom writes the long text.
+# A text expander: type a short trigger and Loomwright writes the long text.
 #
 # Press F8 and pick an expansion, or use the panel to add your own. The
 # expansion list is a plain list of strings, so it is easy to extend.
@@ -10,7 +10,7 @@ loom "text-expander" {
         label "Trigger:"
         input trigger = "sig"
         label "Text:"
-        input text = "Kind regards,\nKeyloom"
+        input text = "Kind regards,\nLoomwright"
         button add = "Add expansion"
     }
 
@@ -24,7 +24,7 @@ loom "text-expander" {
     }
 
     func expansion_list() {
-        return ["sig=Kind regards,\nKeyloom", "addr=127.0.0.1", "path=/home/user/Documents"]
+        return ["sig=Kind regards,\nLoomwright", "addr=127.0.0.1", "path=/home/user/Documents"]
     }
 
     when app starts {

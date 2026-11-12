@@ -14,7 +14,7 @@
 
 #include "errors.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 class Scheduler;
 
@@ -264,4 +264,4 @@ struct CleanupDrainAwaiter {
 
 inline CleanupDrainAwaiter cleanup_drain() { return CleanupDrainAwaiter{&Scheduler::current()}; }
 
-}  // namespace keyloom
+}  // namespace loomwright

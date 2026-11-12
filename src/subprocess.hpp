@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 struct CommandResult {
     int returncode = -1;
@@ -28,4 +28,4 @@ bool spawn_detached(const std::vector<std::string>& argv, std::string& error);
 /// POSIX-shell-style word splitting, matching Python's `shlex.split`.
 std::vector<std::string> split_shell_words(const std::string& text);
 
-}  // namespace keyloom
+}  // namespace loomwright

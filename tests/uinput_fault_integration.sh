@@ -3,15 +3,15 @@
 # injection (no kernel fault injection/sudo). Complements deterministic
 # UInputSetupStep seams by running UInputDevice setup against a real fd.
 set -euo pipefail
-PROBE=${KEYLOOM_UINPUT_FAULT_PROBE:-}
-SHIM=${KEYLOOM_UINPUT_IOCTL_FAULT_SHIM:-}
+PROBE=${LOOMWRIGHT_UINPUT_FAULT_PROBE:-}
+SHIM=${LOOMWRIGHT_UINPUT_IOCTL_FAULT_SHIM:-}
 [[ -x $PROBE && -f $SHIM ]] || exit 77
 [[ -w /dev/uinput ]] || exit 77
 
 fail_at() {
     local step=$1
     local out
-    out=$(LD_PRELOAD=$SHIM KEYLOOM_FAIL_UIOCTL_STEP="$step" "$PROBE" "$step" 2>&1) || {
+    out=$(LD_PRELOAD=$SHIM LOOMWRIGHT_FAIL_UIOCTL_STEP="$step" "$PROBE" "$step" 2>&1) || {
         echo "$out" >&2
         echo "uinput fault probe failed for step: $step" >&2
         return 1
@@ -27,7 +27,7 @@ fail_at() {
 fail_at_with() {
     local step=$1 config=$2
     local out
-    out=$(LD_PRELOAD=$SHIM KEYLOOM_FAIL_UIOCTL_STEP="$step" "$PROBE" "$step" "$config" 2>&1) || {
+    out=$(LD_PRELOAD=$SHIM LOOMWRIGHT_FAIL_UIOCTL_STEP="$step" "$PROBE" "$step" "$config" 2>&1) || {
         echo "$out" >&2
         echo "uinput fault probe failed for step: $step ($config)" >&2
         return 1

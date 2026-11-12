@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
-  <mime-type type="application/x-keyloom">
-    <comment>Keyloom automation script</comment>
+  <mime-type type="application/x-loomwright">
+    <comment>Loomwright automation script</comment>
     <glob pattern="*.loom"/>
   </mime-type>
 </mime-info>

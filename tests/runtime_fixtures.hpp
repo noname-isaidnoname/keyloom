@@ -9,10 +9,10 @@
 #include "runtime.hpp"
 #include "value.hpp"
 
-namespace keyloom_test {
+namespace loomwright_test {
 
 /// Records every output action so a test can assert on the exact sequence.
-struct RecordingBackend : keyloom::OutputBackend {
+struct RecordingBackend : loomwright::OutputBackend {
     std::vector<std::string> log;
 
     void warp(int x, int y) override {
@@ -36,14 +36,14 @@ struct RecordingBackend : keyloom::OutputBackend {
 };
 
 /// Evaluate a single expression in a throwaway script and return its value.
-inline keyloom::Value eval_expression(const std::string& expression) {
-    keyloom::Script script =
-        keyloom::parse("loom \"expr\" { when app starts { set result = " + expression + " } }");
-    keyloom::Runtime runtime(script, keyloom::Runtime::Options{});
+inline loomwright::Value eval_expression(const std::string& expression) {
+    loomwright::Script script =
+        loomwright::parse("loom \"expr\" { when app starts { set result = " + expression + " } }");
+    loomwright::Runtime runtime(script, loomwright::Runtime::Options{});
     runtime.set_backend(std::make_unique<RecordingBackend>());
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
     runtime.scheduler().run();
     return runtime.variables().at("result");
 }
 
-}  // namespace keyloom_test
+}  // namespace loomwright_test

@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 /// A .loom runtime value. The language keeps Python's four scalar shapes
 /// (int, float, bool, string) plus "no value", because script semantics such as
@@ -41,7 +41,7 @@ struct Value {
     std::vector<Value>& list_items();
     const std::vector<Value>& list_items() const;
 
-    /// Python `int(value)`/float coercion; throws RuntimeErrorKeyloom when the
+    /// Python `int(value)`/float coercion; throws RuntimeErrorLoomwright when the
     /// value cannot be converted.
     long long as_int() const;
     double as_double() const;
@@ -61,4 +61,4 @@ std::string py_float_str(double value);
 /// Python's `repr()` of a string, including quote selection and escapes.
 std::string py_repr_string(const std::string& text);
 
-}  // namespace keyloom
+}  // namespace loomwright

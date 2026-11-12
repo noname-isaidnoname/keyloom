@@ -24,13 +24,13 @@
 #include "errors.hpp"
 #include "value.hpp"
 
-#ifdef KEYLOOM_WAYLAND_GUI
+#ifdef LOOMWRIGHT_WAYLAND_GUI
 #include <gtk/gtk.h>
 #include <gdk/gdkwayland.h>
 #include <wayland-client.h>
 #endif
 
-namespace keyloom {
+namespace loomwright {
 
 std::string resolve_compositor() {
     const char* session = std::getenv("XDG_SESSION_TYPE");
@@ -40,7 +40,7 @@ std::string resolve_compositor() {
         try {
             validate_compositor("wayland");
             return "wayland";
-        } catch (const RuntimeErrorKeyloom&) {
+        } catch (const RuntimeErrorLoomwright&) {
             // Preserve support for Xwayland-only builds and unavailable sockets.
         }
     }
@@ -51,16 +51,16 @@ void validate_compositor(const std::string& compositor) {
     if (compositor == "x11") {
         try {
             XcbConnection connection;
-        } catch (const RuntimeErrorKeyloom&) {
-            throw RuntimeErrorKeyloom("option compositor = \"x11\" requires an accessible X11 or Xwayland display.");
+        } catch (const RuntimeErrorLoomwright&) {
+            throw RuntimeErrorLoomwright("option compositor = \"x11\" requires an accessible X11 or Xwayland display.");
         }
         return;
     }
-    if (compositor != "wayland") throw RuntimeErrorKeyloom("Unknown compositor: " + compositor);
+    if (compositor != "wayland") throw RuntimeErrorLoomwright("Unknown compositor: " + compositor);
     const char* session = std::getenv("XDG_SESSION_TYPE");
     if (session && std::string(session) == "x11")
-        throw RuntimeErrorKeyloom("option compositor = \"wayland\" cannot run in an X11 session.");
-#ifdef KEYLOOM_WAYLAND_GUI
+        throw RuntimeErrorLoomwright("option compositor = \"wayland\" cannot run in an X11 session.");
+#ifdef LOOMWRIGHT_WAYLAND_GUI
     if (std::getenv("WAYLAND_SOCKET")) {
         // libwayland consumes WAYLAND_SOCKET, which belongs to our caller and
         // cannot be reused by separate panel processes. Probe the named socket
@@ -68,29 +68,29 @@ void validate_compositor(const std::string& compositor) {
         const char* name = std::getenv("WAYLAND_DISPLAY");
         const char* runtime = std::getenv("XDG_RUNTIME_DIR");
         if (!name || !*name || (name[0] != '/' && (!runtime || runtime[0] != '/')))
-            throw RuntimeErrorKeyloom("Wayland panels need a named WAYLAND_DISPLAY when WAYLAND_SOCKET is set.");
+            throw RuntimeErrorLoomwright("Wayland panels need a named WAYLAND_DISPLAY when WAYLAND_SOCKET is set.");
         const std::string path = name[0] == '/' ? std::string(name) : std::string(runtime) + "/" + name;
         sockaddr_un address{};
         if (path.size() >= sizeof(address.sun_path))
-            throw RuntimeErrorKeyloom("Wayland display socket path is too long.");
+            throw RuntimeErrorLoomwright("Wayland display socket path is too long.");
         address.sun_family = AF_UNIX;
         std::memcpy(address.sun_path, path.c_str(), path.size() + 1);
         const int fd = ::socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (fd < 0) throw RuntimeErrorKeyloom("Could not open a Wayland display socket.");
+        if (fd < 0) throw RuntimeErrorLoomwright("Could not open a Wayland display socket.");
         const int connected = ::connect(fd, reinterpret_cast<const sockaddr*>(&address), sizeof(address));
         ::close(fd);
-        if (connected < 0) throw RuntimeErrorKeyloom("option compositor = \"wayland\" requires an accessible Wayland display.");
+        if (connected < 0) throw RuntimeErrorLoomwright("option compositor = \"wayland\" requires an accessible Wayland display.");
     } else {
         wl_display* display = wl_display_connect(nullptr);
-        if (!display) throw RuntimeErrorKeyloom("option compositor = \"wayland\" requires an accessible Wayland display.");
+        if (!display) throw RuntimeErrorLoomwright("option compositor = \"wayland\" requires an accessible Wayland display.");
         wl_display_disconnect(display);
     }
 #else
-    throw RuntimeErrorKeyloom("Native Wayland panels are unavailable: rebuild with GTK3 and wayland-client development files.");
+    throw RuntimeErrorLoomwright("Native Wayland panels are unavailable: rebuild with GTK3 and wayland-client development files.");
 #endif
 }
 
-#ifdef KEYLOOM_WAYLAND_GUI
+#ifdef LOOMWRIGHT_WAYLAND_GUI
 namespace {
 
 class WaylandWorker final : public GuiHost {
@@ -103,7 +103,7 @@ public:
             initialized = gtk_init_check(nullptr, nullptr) && GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default());
         }
         if (!initialized)
-            throw RuntimeErrorKeyloom("GUI panel \"" + panel.title + "\" needs an accessible native Wayland display.");
+            throw RuntimeErrorLoomwright("GUI panel \"" + panel.title + "\" needs an accessible native Wayland display.");
         window_ = gtk_window_new(GTK_WINDOW_TOPLEVEL);
         gtk_window_set_title(GTK_WINDOW(window_), panel.title.c_str());
         gtk_window_set_default_size(GTK_WINDOW(window_), 240, -1);
@@ -143,7 +143,7 @@ public:
     void set_input_handler(std::function<void(const std::string&, const std::string&)> handler) {
         input_handler_ = std::move(handler);
     }
-#ifdef KEYLOOM_WAYLAND_TEST_HOOKS
+#ifdef LOOMWRIGHT_WAYLAND_TEST_HOOKS
     void test_interaction() {
         for (size_t i = 0; i < panel_.widgets.size(); ++i) {
             if (panel_.widgets[i].kind == GuiWidget::Kind::Input)
@@ -179,7 +179,7 @@ public:
     std::string value(const std::string& id) const override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind != GuiWidget::Kind::Input)
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not an input.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
         return texts_[static_cast<size_t>(i)];
     }
     void set_value(const std::string& id, const std::string& value) override { set_text(id, value); }
@@ -187,7 +187,7 @@ public:
         const int i = checked_index(id);
         const auto kind = panel_.widgets[static_cast<size_t>(i)].kind;
         if (kind == GuiWidget::Kind::Label)
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
         texts_[static_cast<size_t>(i)] = text;
         if (closed_) return;
         GtkWidget* control = controls_[static_cast<size_t>(i)];
@@ -226,7 +226,7 @@ private:
     }
     int checked_index(const std::string& id) const {
         const int i = index(id);
-        if (i < 0) throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
         return i;
     }
     GuiPanel panel_;
@@ -289,9 +289,9 @@ void close_inherited_fds(int keep) {
 
 int run_wayland_worker(int fd, const GuiPanel& panel) {
     try {
-#ifdef KEYLOOM_WAYLAND_TEST_HOOKS
-        if (const char* fail = std::getenv("KEYLOOM_TEST_FAIL_WAYLAND_STARTUP"); fail && std::string(fail) == "1")
-            throw RuntimeErrorKeyloom("injected Wayland panel startup failure");
+#ifdef LOOMWRIGHT_WAYLAND_TEST_HOOKS
+        if (const char* fail = std::getenv("LOOMWRIGHT_TEST_FAIL_WAYLAND_STARTUP"); fail && std::string(fail) == "1")
+            throw RuntimeErrorLoomwright("injected Wayland panel startup failure");
 #endif
         WaylandWorker host(panel);
         bool connected = true;
@@ -316,7 +316,7 @@ int run_wayland_worker(int fd, const GuiPanel& panel) {
             if (message.type == 'Q') break;
             if (message.type == 'T') host.set_text(message.id, message.text);
             else if (message.type == 'V') host.set_visible(message.text == "1");
-#ifdef KEYLOOM_WAYLAND_TEST_HOOKS
+#ifdef LOOMWRIGHT_WAYLAND_TEST_HOOKS
             else if (message.type == 'D') {
                 host.test_interaction();
                 host.process_events();
@@ -339,14 +339,14 @@ public:
         for (const auto& widget : panel.widgets) texts_.push_back(widget.text);
         int sockets[2];
         if (::socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sockets) < 0)
-            throw RuntimeErrorKeyloom("Cannot create Wayland panel socket: " + std::string(std::strerror(errno)));
+            throw RuntimeErrorLoomwright("Cannot create Wayland panel socket: " + std::string(std::strerror(errno)));
         for (int& socket : sockets) {
             if (socket >= 3) continue;
             const int duplicate = ::fcntl(socket, F_DUPFD_CLOEXEC, 3);
             if (duplicate < 0) {
                 const int error = errno;
                 ::close(sockets[0]); ::close(sockets[1]);
-                throw RuntimeErrorKeyloom("Cannot prepare Wayland panel socket: " + std::string(std::strerror(error)));
+                throw RuntimeErrorLoomwright("Cannot prepare Wayland panel socket: " + std::string(std::strerror(error)));
             }
             ::close(socket);
             socket = duplicate;
@@ -356,7 +356,7 @@ public:
         if (child_ < 0) {
             const int error = errno;
             ::close(sockets[0]); ::close(sockets[1]);
-            throw RuntimeErrorKeyloom("Cannot start Wayland panel: " + std::string(std::strerror(error)));
+            throw RuntimeErrorLoomwright("Cannot start Wayland panel: " + std::string(std::strerror(error)));
         }
         if (child_ == 0) {
             ::close(sockets[0]);
@@ -384,7 +384,7 @@ public:
         if (received != 1 || message.type != 'R') {
             const std::string detail = received == 1 && message.type == 'E' ? message.text : "startup failed or timed out";
             close();
-            throw RuntimeErrorKeyloom("Native Wayland panel: " + detail);
+            throw RuntimeErrorLoomwright("Native Wayland panel: " + detail);
         }
     }
     ~WaylandProxy() override { close(); }
@@ -395,7 +395,7 @@ public:
             Message message;
             const int received = receive_message(fd_, message);
             if (received == -1) return;
-            if (received <= 0) throw RuntimeErrorKeyloom("Native Wayland panel connection lost.");
+            if (received <= 0) throw RuntimeErrorLoomwright("Native Wayland panel connection lost.");
             if (message.type == 'I') {
                 const int i = index(message.id);
                 if (i >= 0) texts_[static_cast<size_t>(i)] = message.text;
@@ -405,9 +405,9 @@ public:
                 closed_ = true;
                 emit_event({EventKind::Close, title(), "window"});
             } else if (message.type == 'E') {
-                throw RuntimeErrorKeyloom("Native Wayland panel: " + message.text);
+                throw RuntimeErrorLoomwright("Native Wayland panel: " + message.text);
             } else {
-                throw RuntimeErrorKeyloom("Invalid message from native Wayland panel.");
+                throw RuntimeErrorLoomwright("Invalid message from native Wayland panel.");
             }
         }
     }
@@ -433,26 +433,26 @@ public:
     std::string value(const std::string& id) const override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind != GuiWidget::Kind::Input)
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not an input.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
         return texts_[static_cast<size_t>(i)];
     }
     void set_value(const std::string& id, const std::string& value) override { set_text(id, value); }
     void set_text(const std::string& id, const std::string& text) override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind == GuiWidget::Kind::Label)
-            throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
         if (!closed_ && !send_message(fd_, 'T', id, text))
-            throw RuntimeErrorKeyloom("Could not send text to native Wayland panel.");
+            throw RuntimeErrorLoomwright("Could not send text to native Wayland panel.");
         texts_[static_cast<size_t>(i)] = text;
     }
     void set_visible(bool visible) override {
         if (!closed_ && !send_message(fd_, 'V', {}, visible ? "1" : "0"))
-            throw RuntimeErrorKeyloom("Could not change native Wayland panel visibility.");
-#ifdef KEYLOOM_WAYLAND_TEST_HOOKS
-        const char* test = std::getenv("KEYLOOM_WAYLAND_TEST_INTERACTION");
+            throw RuntimeErrorLoomwright("Could not change native Wayland panel visibility.");
+#ifdef LOOMWRIGHT_WAYLAND_TEST_HOOKS
+        const char* test = std::getenv("LOOMWRIGHT_WAYLAND_TEST_INTERACTION");
         if (visible && !closed_ && test && std::string(test) == "1" && !test_requested_) {
             test_requested_ = true;
-            if (!send_message(fd_, 'D')) throw RuntimeErrorKeyloom("Could not trigger Wayland test interaction.");
+            if (!send_message(fd_, 'D')) throw RuntimeErrorLoomwright("Could not trigger Wayland test interaction.");
         }
 #endif
     }
@@ -464,7 +464,7 @@ private:
     }
     int checked_index(const std::string& id) const {
         const int i = index(id);
-        if (i < 0) throw RuntimeErrorKeyloom("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
         return i;
     }
     GuiPanel panel_;
@@ -472,7 +472,7 @@ private:
     int fd_ = -1;
     pid_t child_ = -1;
     bool closed_ = false;
-#ifdef KEYLOOM_WAYLAND_TEST_HOOKS
+#ifdef LOOMWRIGHT_WAYLAND_TEST_HOOKS
     bool test_requested_ = false;
 #endif
 };
@@ -481,12 +481,12 @@ private:
 #endif
 
 std::unique_ptr<GuiHost> create_wayland_gui(const GuiPanel& panel) {
-#ifdef KEYLOOM_WAYLAND_GUI
+#ifdef LOOMWRIGHT_WAYLAND_GUI
     return std::make_unique<WaylandProxy>(panel);
 #else
     (void)panel;
-    throw RuntimeErrorKeyloom("Native Wayland panels are unavailable: rebuild with GTK3 and wayland-client development files.");
+    throw RuntimeErrorLoomwright("Native Wayland panels are unavailable: rebuild with GTK3 and wayland-client development files.");
 #endif
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -48,7 +48,7 @@ kernel `BTN_*` code. Keys use `code:1` and `code:0`.
 
 ### `type_text` must not be escaped twice
 
-`type_text` through ydotool passes `-e 0 --`, because Keyloom already decoded
+`type_text` through ydotool passes `-e 0 --`, because Loomwright already decoded
 the `.loom` string. Letting ydotool escape again turns a literal backslash
 before `n` into a newline.
 
@@ -73,7 +73,7 @@ aliases.
 
 ### Injected devices must be ignored
 
-`Runtime::open_input_devices()` drops names containing `keyloom`, `ydotool`,
+`Runtime::open_input_devices()` drops names containing `loomwright`, `ydotool`,
 `virtual pointer`, or `remap_clicks`, keeps keyboards (both `KEY_A` and
 `KEY_ENTER`/`KEY_SPACE`) always, and keeps mice only when the script binds a
 mouse button. Mice are observed in coexistence mode: they are never grabbed, so
@@ -187,7 +187,7 @@ the loop ends.
 
 ### Cursor glide does not query the pointer
 
-`cursor glide` starts from Keyloom's last known cursor position, or the screen
+`cursor glide` starts from Loomwright's last known cursor position, or the screen
 center. It does not query the real pointer.
 
 ### The panic key wins

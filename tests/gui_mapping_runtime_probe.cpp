@@ -9,12 +9,12 @@
 #include <unistd.h>
 
 int main() {
-    keyloom::GuiPanel panel;
+    loomwright::GuiPanel panel;
     panel.title = "Mapping probe";
-    panel.widgets.push_back({keyloom::GuiWidget::Kind::Label, "label", "mapping probe", 0});
-    panel.widgets.push_back({keyloom::GuiWidget::Kind::Input, "text", "", 1});
+    panel.widgets.push_back({loomwright::GuiWidget::Kind::Label, "label", "mapping probe", 0});
+    panel.widgets.push_back({loomwright::GuiWidget::Kind::Input, "text", "", 1});
 
-    auto host = keyloom::GuiHost::create(panel);
+    auto host = loomwright::GuiHost::create(panel);
     if (!host) {
         std::fprintf(stderr, "failed to create GUI host\n");
         return 1;

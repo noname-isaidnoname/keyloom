@@ -7,7 +7,7 @@
 #include "subprocess.hpp"
 
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 }  // namespace
@@ -59,7 +59,7 @@ void Runtime::gui_alert(const std::string& message, const std::string& title) {
         const CommandResult result =
             run_command({executable, "--info", "--title=" + title, "--text=" + message}, std::string(), 120000);
         if (result.returncode != 0 && !result.spawn_failed) {
-            throw RuntimeErrorKeyloom("GUI alert failed with exit code " + std::to_string(result.returncode));
+            throw RuntimeErrorLoomwright("GUI alert failed with exit code " + std::to_string(result.returncode));
         }
         return;
     }
@@ -68,7 +68,7 @@ void Runtime::gui_alert(const std::string& message, const std::string& title) {
         const CommandResult result =
             run_command({kdialog, "--title", title, "--msgbox", message}, std::string(), 120000);
         if (result.returncode != 0 && !result.spawn_failed) {
-            throw RuntimeErrorKeyloom("GUI alert failed with exit code " + std::to_string(result.returncode));
+            throw RuntimeErrorLoomwright("GUI alert failed with exit code " + std::to_string(result.returncode));
         }
         return;
     }
@@ -77,11 +77,11 @@ void Runtime::gui_alert(const std::string& message, const std::string& title) {
         const CommandResult result =
             run_command({yad, "--info", "--title=" + title, "--text=" + message}, std::string(), 120000);
         if (result.returncode != 0 && !result.spawn_failed) {
-            throw RuntimeErrorKeyloom("GUI alert failed with exit code " + std::to_string(result.returncode));
+            throw RuntimeErrorLoomwright("GUI alert failed with exit code " + std::to_string(result.returncode));
         }
         return;
     }
-    throw RuntimeErrorKeyloom("GUI dialogs need zenity, kdialog, or yad.");
+    throw RuntimeErrorLoomwright("GUI dialogs need zenity, kdialog, or yad.");
 }
 
 std::string Runtime::gui_input(const std::string& prompt, const std::string& default_value, const std::string& title) {
@@ -114,7 +114,7 @@ std::string Runtime::gui_input(const std::string& prompt, const std::string& def
         while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) value.pop_back();
         return value;
     }
-    throw RuntimeErrorKeyloom("GUI input needs zenity, kdialog, or yad.");
+    throw RuntimeErrorLoomwright("GUI input needs zenity, kdialog, or yad.");
 }
 
 bool Runtime::gui_confirm(const std::string& question, const std::string& title) {
@@ -136,7 +136,7 @@ bool Runtime::gui_confirm(const std::string& question, const std::string& title)
             run_command({yad, "--question", "--title=" + title, "--text=" + question}, std::string(), 120000);
         return result.returncode == 0;
     }
-    throw RuntimeErrorKeyloom("GUI confirmation needs zenity, kdialog, or yad.");
+    throw RuntimeErrorLoomwright("GUI confirmation needs zenity, kdialog, or yad.");
 }
 
 std::map<std::string, std::string> Runtime::active_window_info() const {
@@ -237,4 +237,4 @@ std::map<std::string, std::string> Runtime::active_window_info() const {
     return info;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

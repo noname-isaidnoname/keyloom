@@ -1,6 +1,6 @@
-# Maintainer: Keyloom contributors
+# Maintainer: Loomwright contributors
 #
-# Builds and installs keyloom from a local checkout of this repository; no
+# Builds and installs loomwright from a local checkout of this repository; no
 # release tarball or network access is involved. Run:
 #
 #     cd packaging/arch
@@ -8,10 +8,10 @@
 #
 # The source is whatever the checkout contains, committed or not, so this is
 # also the way to package work in progress. To publish the package, point
-# _keyloom_source_dir at a published source instead of the checkout.
+# _loomwright_source_dir at a published source instead of the checkout.
 
-pkgname=keyloom
-# Keep this in sync with project(keyloom VERSION ...) in ../../CMakeLists.txt.
+pkgname=loomwright
+# Keep this in sync with project(loomwright VERSION ...) in ../../CMakeLists.txt.
 pkgver=0.5.4
 pkgrel=1
 pkgdesc='Linux-first desktop automation language and runtime'
@@ -21,7 +21,7 @@ license=(MIT)
 # split debug package appearing alongside it when makepkg enables debug symbols.
 options=(!debug)
 # X11 and libpng support the picker; XCB supports GUI transport development.
-# hicolor-icon-theme provides the icon theme the scalable keyloom.svg is
+# hicolor-icon-theme provides the icon theme the scalable loomwright.svg is
 # registered in; the desktop-file-utils and shared-mime-info packages provide
 # the cache tools the post-install hook runs.
 depends=(
@@ -60,19 +60,19 @@ optdepends=(
 source=()
 sha256sums=()
 
-_keyloom_source_dir="${KEYLOOM_SOURCE_DIR:-${startdir}/../..}"
+_loomwright_source_dir="${LOOMWRIGHT_SOURCE_DIR:-${startdir}/../..}"
 
-# Set KEYLOOM_BUILD_TESTS=ON when invoking makepkg to build the test suite and
-# run it in check() (e.g. makepkg -si KEYLOOM_BUILD_TESTS=ON).
-_build_tests=${KEYLOOM_BUILD_TESTS:-OFF}
+# Set LOOMWRIGHT_BUILD_TESTS=ON when invoking makepkg to build the test suite and
+# run it in check() (e.g. makepkg -si LOOMWRIGHT_BUILD_TESTS=ON).
+_build_tests=${LOOMWRIGHT_BUILD_TESTS:-OFF}
 
 prepare() {
-    [[ -f "${_keyloom_source_dir}/CMakeLists.txt" ]] ||
-        error 'run makepkg from a complete keyloom checkout'
+    [[ -f "${_loomwright_source_dir}/CMakeLists.txt" ]] ||
+        error 'run makepkg from a complete loomwright checkout'
 }
 
 build() {
-    cmake -S "${_keyloom_source_dir}" -B build -G Ninja \
+    cmake -S "${_loomwright_source_dir}" -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_INSTALL_BINDIR=bin \
@@ -89,16 +89,16 @@ check() {
 
 package() {
     DESTDIR="${pkgdir}" cmake --install build
-    install -Dm644 "${_keyloom_source_dir}/LICENSE" \
+    install -Dm644 "${_loomwright_source_dir}/LICENSE" \
         "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
 
     # The desktop entry, the scalable icon and the .loom MIME type are
-    # installed by CMake (see KEYLOOM_DESKTOP_INTEGRATION), so they are the
+    # installed by CMake (see LOOMWRIGHT_DESKTOP_INTEGRATION), so they are the
     # same files the DEB and RPM packages ship.
     # Default-application associations live in $XDG_CONFIG_DIRS/mimeapps.list
     # (/etc/xdg), which takes precedence over /usr/share/applications and is
     # not subject to the unowned-stub conflicts that path can hit.
-    install -Dm644 "${_keyloom_source_dir}/packaging/arch/mimeapps.list" \
+    install -Dm644 "${_loomwright_source_dir}/packaging/arch/mimeapps.list" \
         "${pkgdir}/etc/xdg/mimeapps.list"
 }
 

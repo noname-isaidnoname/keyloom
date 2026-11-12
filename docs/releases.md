@@ -4,8 +4,8 @@
 
 `scripts/package.sh source|tar|deb|rpm|appimage` and, on Arch,
 `scripts/package-arch.sh` write to `build/artifacts`.
-Set `KEYLOOM_PACKAGE_OUT` to override either script's output directory.
-For `package.sh`, `KEYLOOM_PACKAGE_BUILD` and `JOBS` override its build
+Set `LOOMWRIGHT_PACKAGE_OUT` to override either script's output directory.
+For `package.sh`, `LOOMWRIGHT_PACKAGE_BUILD` and `JOBS` override its build
 directory and parallelism. The build directory must be writable.
 Use a clean checkout: `source` archives **HEAD**, not uncommitted changes, while
 binary packages build the working tree. Install CMake, Ninja, a C++20 compiler,
@@ -30,7 +30,7 @@ or independent provenance verification is currently provided.
 
 All packages ship the same desktop integration files from `packaging/common/`:
 the application entry with its scalable `hicolor` icon, the
-`application/x-keyloom` MIME type and the `keyloom-terminal` launcher. The DEB
+`application/x-loomwright` MIME type and the `loomwright-terminal` launcher. The DEB
 and RPM packages refresh the desktop, icon and MIME caches from their
 post-install scripts; the Arch package does the same in `post_install()`. The
 Arch package additionally registers the system-wide default handler in
@@ -100,7 +100,7 @@ release artifacts are not a substitute for independent security review.
 For a local Arch build, install `base-devel`, CMake, Ninja, pkgconf, X11/XCB,
 libpng, GTK3 and Wayland, then run `scripts/package-arch.sh` **without root**.
 The script does not install dependencies or use sudo. Set
-`KEYLOOM_PACKAGE_OUT` for an alternate output directory and
+`LOOMWRIGHT_PACKAGE_OUT` for an alternate output directory and
 `CMAKE_BUILD_PARALLEL_LEVEL` to limit compilation.
 
 ## Podman for workflow work
@@ -123,10 +123,10 @@ podman run --rm -v "$PWD:/src:ro" -v "$PWD/build/podman:/out:rw" ubuntu:24.04 ba
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y build-essential cmake ninja-build pkg-config file libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
-  KEYLOOM_PACKAGE_BUILD=/out/build KEYLOOM_PACKAGE_OUT=/out/artifacts JOBS=2 /src/scripts/package.sh deb
+  LOOMWRIGHT_PACKAGE_BUILD=/out/build LOOMWRIGHT_PACKAGE_OUT=/out/artifacts JOBS=2 /src/scripts/package.sh deb
   apt-get install -y /out/artifacts/*.deb
-  keyloom --version
-  keyloom --check /src/examples/two_spots.loom
+  loomwright --version
+  loomwright --check /src/examples/two_spots.loom
 '
 ```
 

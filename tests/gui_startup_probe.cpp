@@ -23,12 +23,12 @@ int main() {
     std::puts("creating");
     std::fflush(stdout);
     try {
-        keyloom::GuiPanel panel;
+        loomwright::GuiPanel panel;
         panel.title = "Interrupted startup";
-        auto host = keyloom::GuiHost::create(panel);
+        auto host = loomwright::GuiHost::create(panel);
         std::fprintf(stderr, "GUI startup unexpectedly succeeded\n");
         return 1;
-    } catch (const keyloom::RuntimeErrorKeyloom&) {
+    } catch (const loomwright::RuntimeErrorLoomwright&) {
     }
     if (fd_count() != before) {
         std::fprintf(stderr, "GUI startup leaked an fd\n");

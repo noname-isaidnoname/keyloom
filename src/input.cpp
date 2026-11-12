@@ -15,7 +15,7 @@
 #include "errors.hpp"
 #include "keys.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 constexpr size_t kKeyBits = (KEY_MAX / 8) + 1;
@@ -86,20 +86,20 @@ void grab_idle_input(const std::function<std::vector<int>()>& snapshot,
                      const std::function<PendingInput()>& discard_pending,
                      const std::function<void()>& grab, const std::function<void()>& ungrab) {
     if (!snapshot().empty())
-        throw RuntimeErrorKeyloom("release all held keys and buttons before starting key consumption");
+        throw RuntimeErrorLoomwright("release all held keys and buttons before starting key consumption");
     // Drain non-key events left behind by EVIOCGKEY, then take the last key
     // snapshot before the grab. Never call EVIOCGKEY after grabbing: it would
     // flush a transient press/release before we could notice it.
     discard_pending();
     if (!snapshot().empty())
-        throw RuntimeErrorKeyloom("release all held keys and buttons before starting key consumption");
+        throw RuntimeErrorLoomwright("release all held keys and buttons before starting key consumption");
     grab();
     try {
         PendingInput pending;
         try {
             pending = discard_pending();
         } catch (const std::exception& error) {
-            throw RuntimeErrorKeyloom(std::string("could not inspect input after grabbing: ") + error.what() +
+            throw RuntimeErrorLoomwright(std::string("could not inspect input after grabbing: ") + error.what() +
                 ". A key release may have been intercepted; if a key appears stuck, physically tap and release it");
         }
         if (pending.any) {
@@ -115,7 +115,7 @@ void grab_idle_input(const std::function<std::vector<int>()>& snapshot,
                            "; if it appears stuck, physically tap and release it";
             else if (pending.synchronization_lost)
                 message += ". Input events were lost; if a key appears stuck, physically tap and release it";
-            throw RuntimeErrorKeyloom(message);
+            throw RuntimeErrorLoomwright(message);
         }
     } catch (...) {
         const std::exception_ptr failure = std::current_exception();
@@ -187,12 +187,12 @@ PendingInput drain_input_events(int fd) {
                     pending.synchronization_lost = true;
             }
             count += static_cast<size_t>(bytes) / sizeof(input_event);
-            if (count >= 4096) throw RuntimeErrorKeyloom("too many pending input events while grabbing");
+            if (count >= 4096) throw RuntimeErrorLoomwright("too many pending input events while grabbing");
             continue;
         }
         if (bytes < 0 && errno == EINTR) continue;
         if (bytes < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return pending;
-        if (bytes == 0) throw RuntimeErrorKeyloom("input device disconnected while grabbing");
+        if (bytes == 0) throw RuntimeErrorLoomwright("input device disconnected while grabbing");
         throw std::system_error(errno, std::generic_category(), "reading pending input events");
     }
 }
@@ -234,4 +234,4 @@ std::vector<std::string> list_input_devices() {
     return paths;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

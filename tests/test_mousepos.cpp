@@ -9,7 +9,7 @@
 #include "mousepos.hpp"
 #include "picker_image.hpp"
 
-using namespace keyloom;
+using namespace loomwright;
 
 TEST_CASE(coordinate_format_matches_loom_syntax) {
     CHECK_EQ(format_coordinates(640, 420), std::string("640, 420"));
@@ -123,17 +123,17 @@ TEST_CASE(capture_desktop_reports_missing_tools) {
 }
 
 TEST_CASE(cli_prints_picked_position) {
-    const auto captured = keyloom_test::capture_output([] {
+    const auto captured = loomwright_test::capture_output([] {
         return run_cli({"--get-mouse-pos"}, [](bool) -> std::optional<std::pair<int, int>> {
             return std::pair<int, int>{12, 34};
         });
     });
     CHECK_EQ(captured.code, 0);
-    CHECK_EQ(keyloom_test::strip_trailing_newlines(captured.out), std::string("12, 34"));
+    CHECK_EQ(loomwright_test::strip_trailing_newlines(captured.out), std::string("12, 34"));
 }
 
 TEST_CASE(cli_cancel_returns_130) {
-    const auto captured = keyloom_test::capture_output([] {
+    const auto captured = loomwright_test::capture_output([] {
         return run_cli({"--get-mouse-pos"}, [](bool) -> std::optional<std::pair<int, int>> {
             return std::nullopt;
         });
@@ -143,7 +143,7 @@ TEST_CASE(cli_cancel_returns_130) {
 }
 
 TEST_CASE(cli_reports_picker_startup_errors) {
-    const auto captured = keyloom_test::capture_output([] {
+    const auto captured = loomwright_test::capture_output([] {
         return run_cli({"--get-mouse-pos"}, [](bool) -> std::optional<std::pair<int, int>> {
             throw PickerError("no display");
         });

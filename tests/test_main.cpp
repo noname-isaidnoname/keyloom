@@ -4,7 +4,7 @@
 #include <iostream>
 #include <stdexcept>
 
-namespace keyloom_test {
+namespace loomwright_test {
 
 std::vector<TestCase>& registry() {
     static std::vector<TestCase> tests;
@@ -36,9 +36,9 @@ int run_all(const std::string& filter) {
     return failures == 0 ? 0 : 1;
 }
 
-}  // namespace keyloom_test
+}  // namespace loomwright_test
 
 int main(int argc, char** argv) {
     const std::string filter = argc > 1 ? argv[1] : std::string();
-    return keyloom_test::run_all(filter);
+    return loomwright_test::run_all(filter);
 }

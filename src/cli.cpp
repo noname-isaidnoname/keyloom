@@ -21,14 +21,14 @@
 #include "runtime.hpp"
 #include "subprocess.hpp"
 
-#ifndef KEYLOOM_VERSION
-#define KEYLOOM_VERSION "0.0.0"
+#ifndef LOOMWRIGHT_VERSION
+#define LOOMWRIGHT_VERSION "0.0.0"
 #endif
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
-const char* kMarker = "keyloom: ";
+const char* kMarker = "loomwright: ";
 
 std::string expand_home(const std::string& name) {
     if (name.empty() || name.front() != '~') return name;
@@ -46,7 +46,7 @@ std::filesystem::path resolve_script_path(const std::string& name) {
 Script load_script(const std::filesystem::path& path) {
     std::ifstream stream(path, std::ios::binary);
     if (!stream) {
-        throw RuntimeErrorKeyloom("Cannot read script " + path.string() + ": " +
+        throw RuntimeErrorLoomwright("Cannot read script " + path.string() + ": " +
                                   std::string(std::strerror(errno)));
     }
     std::ostringstream buffer;
@@ -54,7 +54,7 @@ Script load_script(const std::filesystem::path& path) {
     try {
         return parse(buffer.str(), path.string());
     } catch (const ParseError& error) {
-        throw RuntimeErrorKeyloom(path.string() + ": " + error.what());
+        throw RuntimeErrorLoomwright(path.string() + ": " + error.what());
     }
 }
 
@@ -112,7 +112,7 @@ int command_init(const std::string& name, bool force) {
         return 2;
     }
     std::cout << "Created " << path.string() << "\n";
-    std::cout << "Next: keyloom --check " << path.string() << " && keyloom --run " << path.string() << "\n";
+    std::cout << "Next: loomwright --check " << path.string() << " && loomwright --run " << path.string() << "\n";
     return 0;
 }
 
@@ -173,7 +173,7 @@ int command_run(const std::filesystem::path& path, const CliArgs& args) {
     }
 
     if (runtime.interrupted()) {
-        std::cout << "\n[keyloom] Interrupted.\n";
+        std::cout << "\n[loomwright] Interrupted.\n";
         return 0;
     }
     return 0;
@@ -202,7 +202,7 @@ int command_devices() {
 std::string boolean_text(bool value) { return value ? "True" : "False"; }
 
 int command_doctor() {
-    std::cout << "Keyloom " << version_string() << " — Linux desktop automation diagnostics\n";
+    std::cout << "Loomwright " << version_string() << " — Linux desktop automation diagnostics\n";
     const char* session = std::getenv("XDG_SESSION_TYPE");
     std::cout << "Session: " << (session != nullptr ? session : "unknown")
               << " | DISPLAY=" << boolean_text(std::getenv("DISPLAY") != nullptr)
@@ -227,8 +227,8 @@ int command_doctor() {
     }
     const bool uinput_ready = ::access("/dev/uinput", W_OK) == 0;
     std::cout << "/dev/uinput: " << (uinput_ready ? "present and writable" : "missing or not writable") << "\n";
-    std::cout << "X11: " << (std::getenv("DISPLAY") != nullptr ? "available (keyloom --get-mouse-pos)"
-                                                               : "MISSING — set DISPLAY for keyloom --get-mouse-pos")
+    std::cout << "X11: " << (std::getenv("DISPLAY") != nullptr ? "available (loomwright --get-mouse-pos)"
+                                                               : "MISSING — set DISPLAY for loomwright --get-mouse-pos")
               << "\n";
 
     const auto tools = available_screenshot_tools();
@@ -245,7 +245,7 @@ int command_doctor() {
     std::cout << "wl-copy / wl-paste: " << boolean_text(!which("wl-copy").empty()) << " / "
               << boolean_text(!which("wl-paste").empty()) << "\n";
     if (accessible == 0) {
-        std::cout << "Input note: Keyloom needs permission to read a keyboard from /dev/input/event*. See "
+        std::cout << "Input note: Loomwright needs permission to read a keyboard from /dev/input/event*. See "
                      "README.md → Wayland and Xwayland setup.\n";
     }
     return 0;
@@ -281,10 +281,10 @@ int command_list_api() {
 
 }  // namespace
 
-const char* version_string() { return KEYLOOM_VERSION; }
+const char* version_string() { return LOOMWRIGHT_VERSION; }
 
 std::string usage_text() {
-    return "usage: keyloom [-h] [--init SCRIPT | --check PATH | --run PATH | --docs [TOPIC] | --devices |\n"
+    return "usage: loomwright [-h] [--init SCRIPT | --check PATH | --run PATH | --docs [TOPIC] | --devices |\n"
            "               --screen | --get-mouse-pos | --list-api | --doctor]\n"
            "               [--force] [--dry-run] [--input-device EVENT_PATH]\n"
            "               [--output-backend {auto,ydotool,uinput}] [--screen-size WIDTHxHEIGHT] [--verbose]\n"
@@ -293,7 +293,7 @@ std::string usage_text() {
 
 std::string help_text() {
     return usage_text() +
-           "\nBuild and run Linux desktop automation scripts in the Keyloom language.\n"
+           "\nBuild and run Linux desktop automation scripts in the Loomwright language.\n"
            "\n"
            "positional arguments:\n"
            "  script                script path (shorthand for --run PATH)\n"
@@ -320,8 +320,8 @@ std::string help_text() {
            "  --verbose             print extra runtime details\n"
            "  --version             show the program version and exit\n"
            "\n"
-           "Examples: keyloom --init demo | keyloom --check demo.loom | keyloom --run demo.loom\n"
-           "          keyloom --get-mouse-pos\n";
+           "Examples: loomwright --init demo | loomwright --check demo.loom | loomwright --run demo.loom\n"
+           "          loomwright --get-mouse-pos\n";
 }
 
 CliArgs parse_cli(const std::vector<std::string>& args) {
@@ -426,12 +426,12 @@ int run_cli(const std::vector<std::string>& args, const PickerFunction& picker) 
         parsed = parse_cli(args);
     } catch (const CliUsageError& error) {
         std::cerr << usage_text();
-        std::cerr << "keyloom: error: " << error.what() << "\n";
+        std::cerr << "loomwright: error: " << error.what() << "\n";
         return 2;
     }
 
     if (parsed.version) {
-        std::cout << "keyloom " << version_string() << "\n";
+        std::cout << "loomwright " << version_string() << "\n";
         return 0;
     }
     if (parsed.help) {
@@ -460,4 +460,4 @@ int run_cli(const std::vector<std::string>& args, const PickerFunction& picker) 
     return 0;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

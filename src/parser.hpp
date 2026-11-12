@@ -5,7 +5,7 @@
 
 #include "ast.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 /// A syntax error. `line`/`col` are 0 when the error has no token attached.
 class ParseError : public std::runtime_error {
@@ -19,4 +19,4 @@ public:
 
 Script parse(const std::string& source, const std::string& path = "<memory>");
 
-}  // namespace keyloom
+}  // namespace loomwright

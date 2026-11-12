@@ -10,7 +10,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
-                "KEYLOOM_USE_MOLD": "ON",
+                "LOOMWRIGHT_USE_MOLD": "ON",
                 "BUILD_TESTING": "ON"
             }
         },
@@ -22,7 +22,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
-                "KEYLOOM_USE_MOLD": "ON",
+                "LOOMWRIGHT_USE_MOLD": "ON",
                 "BUILD_TESTING": "ON"
             }
         },
@@ -34,9 +34,9 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
-                "KEYLOOM_USE_MOLD": "ON",
-                "KEYLOOM_SANITIZE": "ON",
-                "KEYLOOM_HARDEN": "OFF",
+                "LOOMWRIGHT_USE_MOLD": "ON",
+                "LOOMWRIGHT_SANITIZE": "ON",
+                "LOOMWRIGHT_HARDEN": "OFF",
                 "BUILD_TESTING": "ON"
             }
         }

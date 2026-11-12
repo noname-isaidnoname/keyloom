@@ -29,19 +29,19 @@ int main(int argc, char** argv) {
     std::string screenshot;
     bool error_seen = false;
     try {
-        const auto result = keyloom::pick_mouse_position_with_upload_hook(false, [&](const std::string& path) {
+        const auto result = loomwright::pick_mouse_position_with_upload_hook(false, [&](const std::string& path) {
             screenshot = path;
             if (disconnect) {
                 std::puts("uploading");
                 std::fflush(stdout);
                 char resume = 0;
-                if (::read(STDIN_FILENO, &resume, 1) != 1) throw keyloom::PickerError("probe control failed");
+                if (::read(STDIN_FILENO, &resume, 1) != 1) throw loomwright::PickerError("probe control failed");
             } else {
                 std::raise(SIGINT);
             }
         });
         if (result || disconnect) return 1;
-    } catch (const keyloom::PickerError& error) {
+    } catch (const loomwright::PickerError& error) {
         error_seen = std::string(error.what()).find("X11 connection closed") != std::string::npos;
         if (!disconnect || !error_seen) {
             std::fprintf(stderr, "%s\n", error.what());

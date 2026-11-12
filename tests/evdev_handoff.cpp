@@ -14,7 +14,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 
-using namespace keyloom;
+using namespace loomwright;
 
 namespace {
 
@@ -102,7 +102,7 @@ int main() {
     }
     bool isolated = false;
     try {
-        UInputDevice writer("Keyloom isolated handoff test", "keyloom/test/handoff", {kTestCode}, {}, {});
+        UInputDevice writer("Loomwright isolated handoff test", "loomwright/test/handoff", {kTestCode}, {}, {});
         const std::string path = event_path(writer.fd());
         if (path.empty() || !unclassified(path)) {
             std::cout << "skip: test device is not confirmed unclassified and readable (path: " << path << ")\n";

@@ -14,7 +14,7 @@
 #include "errors.hpp"
 #include "unique_fd.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 void check_device_node() {
@@ -183,4 +183,4 @@ std::unique_ptr<VirtualInput> create_uinput_from_capabilities(const std::string&
                                           capabilities.absolute);
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

@@ -1,12 +1,12 @@
 # AGENTS.md
 
-Keyloom is a Linux-first desktop automation language. A `.loom` file is parsed, statically checked, and run by a native C++20 runtime built on one epoll-based event loop (`src/scheduler.cpp`). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`; output goes through `ydotool`/`ydotoold` or a direct `uinput` device written with plain `input_event` structures. The language never evaluates code or shell strings. `launch` is opt-in and uses an argv vector with no shell.
+Loomwright is a Linux-first desktop automation language. A `.loom` file is parsed, statically checked, and run by a native C++20 runtime built on one epoll-based event loop (`src/scheduler.cpp`). Input comes from physical keyboards through evdev ioctls on `/dev/input/event*`; output goes through `ydotool`/`ydotoold` or a direct `uinput` device written with plain `input_event` structures. The language never evaluates code or shell strings. `launch` is opt-in and uses an argv vector with no shell.
 
 This repo is the C++ port. The original Python implementation is deprecated and no longer the behavioral reference; the C++ port has improvements and features of its own.
 
 ## Documentation
 
-User docs: `README.md`. Language reference: `keyloom --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
+User docs: `README.md`. Language reference: `loomwright --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 
 Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md).
 
@@ -28,8 +28,8 @@ Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md).
 - C++20, 4-space indentation, RAII, explicit exception types, and a warning-clean build. See [`docs/contributing.md`](docs/contributing.md).
 - Keep the DSL small: no arbitrary code execution, shell strings, or file/network APIs without a deliberate design change.
 - Update `README.md` and `src/docs.cpp` (`kGuide` and `api_reference()`) with user-visible changes, and keep the relevant `docs/*.md` in sync. See [`docs/contributing.md`](docs/contributing.md).
-- Versioning: bump `project(keyloom VERSION ...)` in `CMakeLists.txt` (the source of truth) and keep `packaging/arch/PKGBUILD` in sync. See [`docs/contributing.md#versioning`](docs/contributing.md#versioning).
-- Commit once verified: run `make` (build plus the full test suite) and, when the language changes, `keyloom --check` on every script in `examples/`. See [`docs/contributing.md#committing`](docs/contributing.md#committing).
+- Versioning: bump `project(loomwright VERSION ...)` in `CMakeLists.txt` (the source of truth) and keep `packaging/arch/PKGBUILD` in sync. See [`docs/contributing.md#versioning`](docs/contributing.md#versioning).
+- Commit once verified: run `make` (build plus the full test suite) and, when the language changes, `loomwright --check` on every script in `examples/`. See [`docs/contributing.md#committing`](docs/contributing.md#committing).
 - Do not assume the session type, compositor, distro or package manager anywhere — detect at runtime and keep docs generic. See [`docs/build-and-install.md#environment-assumptions`](docs/build-and-install.md#environment-assumptions).
 
 ## Gotchas

@@ -6,13 +6,13 @@
 
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
-const char* const kGuide = R"DOC(KEYLOOM LANGUAGE GUIDE
+const char* const kGuide = R"DOC(LOOMWRIGHT LANGUAGE GUIDE
 ======================
 
-Keyloom is a Linux desktop automation language. A .loom file is parsed and
+Loomwright is a Linux desktop automation language. A .loom file is parsed and
 checked before it is run. It is deliberately not Python or AutoHotkey syntax.
 
 A minimal file
@@ -90,7 +90,7 @@ panel stops the script unless a `when gui window closes` handler is declared.
 The GUI is non-modal; timers and input continue while it is open.
 
 Mouse events read the BTN_* buttons on /dev/input/event* mice. Buttons are
-left, right, middle, side, and extra. Keyloom observes a mouse in coexistence
+left, right, middle, side, and extra. Loomwright observes a mouse in coexistence
 mode: it never grabs the device, so the physical click still reaches
 applications. A mouse event can add an action (for example hold Ctrl while the
 button is down) but cannot suppress or replace the click. Mouse buttons and
@@ -151,7 +151,7 @@ Actions
     key CTRL free                  # release a key
     key CTRL+S tap for 80ms        # press chord, then release in reverse order
     consume key A                  # swallow A (including key-up and autorepeat)
-    type "Hello from Keyloom"      # type text via selected output backend
+    type "Hello from Loomwright"      # type text via selected output backend
     send "hello{enter}"            # AHK-style text and key tokens
     scroll 0, -3                   # vertical/horizontal wheel (needs /dev/uinput)
     wait 150ms                    # or wait an expression in seconds
@@ -262,7 +262,7 @@ append(list, value), sort(list), contains(list, value). `append` and `sort`
 change the list in place and return it.
 
 The checker rejects a call to a function that does not exist, so a typo is
-reported by `keyloom --check` instead of failing at runtime.
+reported by `loomwright --check` instead of failing at runtime.
 
 Options
 -------
@@ -280,7 +280,7 @@ Safety and runtime behavior
 * The panic key defaults to PAUSE. Ctrl+C also stops the runtime.
 * `consume key NAME` is a script-wide declaration, not a per-event action: it
   applies from startup no matter where it appears, so the first key-down can be
-  swallowed. Keyloom grabs the physical keyboard and replays every other event
+  swallowed. Loomwright grabs the physical keyboard and replays every other event
   through a virtual uinput device; this needs `/dev/uinput` write access and the
   same device permissions as reading. The panic key is never consumed.
 * The runtime releases all held virtual buttons/keys on stop and on errors.
@@ -330,20 +330,20 @@ Prefer a udev rule or an `input` group membership over running the program as
 root. Mouse buttons are observed without an EVIOCGRAB, unlike `consume key`,
 which grabs keyboards to withhold a key.
 Release all keys and buttons before starting a consuming or remapping script,
-and avoid typing during startup. Keyloom refuses a grab when it detects a held
+and avoid typing during startup. Loomwright refuses a grab when it detects a held
 input before grabbing or queued input during the handoff. A press just before
 the grab can still have its release intercepted; if a key appears stuck after
 a failed grab, physically tap and release it. The error identifies observed
-releases; Keyloom does not inject replacements. For observed devices, held keys initialize
+releases; Loomwright does not inject replacements. For observed devices, held keys initialize
 `key_down()` without firing a binding, including on their first release.
-After an evdev queue overflow, Keyloom discards events through the next sync
+After an evdev queue overflow, Loomwright discards events through the next sync
 report and reconciles pressed keys against the kernel snapshot. Lost individual
 transitions and relative motion cannot be recovered. A failed snapshot stops
 the runtime rather than continuing with unreliable key state.
 
 For output, `ydotool` + `ydotoold` is the recommended Wayland/Xwayland
 backend for keyboard output. ydotool 1.0.x's `mousemove --absolute` is not a
-real absolute warp (it jumps to the top-left first), so Keyloom uses its own
+real absolute warp (it jumps to the top-left first), so Loomwright uses its own
 absolute `uinput` pointer for `cursor warp`, `cursor move` and `scroll`.
 Start `ydotoold` in your user session and make sure `/dev/uinput` is writable.
 The `uinput` backend writes input_event structures straight to /dev/uinput for
@@ -445,7 +445,7 @@ std::string render_docs(const std::string& topic) {
     if (key.empty() || key == "all" || key == "guide") return language_guide();
     for (const auto& group : reference()) {
         if (group.first != key) continue;
-        std::string title = "KEYLOOM API: " + group.first;
+        std::string title = "LOOMWRIGHT API: " + group.first;
         for (char& c : title) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         std::vector<std::string> lines;
         lines.push_back(title);
@@ -466,4 +466,4 @@ std::string render_docs(const std::string& topic) {
     return "Unknown docs topic " + py_repr_string(topic) + ". Topics: " + topics;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

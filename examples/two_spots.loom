@@ -2,7 +2,7 @@
 # Hold D to hold the left mouse button at spot D.
 # A and D are consumed, so they do not type into the focused application.
 # F11 disables the A/D bindings; F12 re-enables them.
-# Change the coordinates to match your desktop. Press X to stop Keyloom.
+# Change the coordinates to match your desktop. Press X to stop Loomwright.
 loom "two-spots" {
     option input = "evdev"
     option output = "auto"

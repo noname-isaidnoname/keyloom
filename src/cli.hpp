@@ -7,7 +7,7 @@
 #include <utility>
 #include <vector>
 
-namespace keyloom {
+namespace loomwright {
 
 class CliUsageError : public std::runtime_error {
 public:
@@ -48,4 +48,4 @@ const char* version_string();
 int run_cli(const std::vector<std::string>& args);
 int run_cli(const std::vector<std::string>& args, const PickerFunction& picker);
 
-}  // namespace keyloom
+}  // namespace loomwright

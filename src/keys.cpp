@@ -9,7 +9,7 @@
 #include "errors.hpp"
 #include "value.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 struct KeyEntry {
@@ -172,4 +172,4 @@ std::optional<std::string> normalize_key_event(int code) {
     return std::string(name);
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

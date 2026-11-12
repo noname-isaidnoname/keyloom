@@ -12,7 +12,7 @@
 #include "errors.hpp"
 #include "keys.hpp"
 
-namespace keyloom {
+namespace loomwright {
 namespace {
 
 struct OptionRule {
@@ -464,4 +464,4 @@ std::vector<Diagnostic> check_script(const Script& script) {
     return out;
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

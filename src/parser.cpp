@@ -8,7 +8,7 @@
 
 #include "lexer.hpp"
 
-namespace keyloom {
+namespace loomwright {
 
 const char* stmt_kind_name(StmtKind kind) {
     switch (kind) {
@@ -689,4 +689,4 @@ Script parse(const std::string& source, const std::string& path) {
     return parser.parse_script();
 }
 
-}  // namespace keyloom
+}  // namespace loomwright

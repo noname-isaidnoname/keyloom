@@ -43,7 +43,7 @@ The repository must never be in a state where the docs disagree with the build.
     changes that ship with a release, or narrowly scoped behaviour fixes with
     no new user-facing surface.
   - **Minor** (`X.Y+1.0`): backward-compatible features, new language
-    statements/built-ins/options, new CLI flags, or meaningful user-visible
+    statements/built-ins/options, medium/large refactors, new CLI flags, or meaningful user-visible
     improvements.
   - **Major** (`X+1.0.0`): breaking changes to script syntax/semantics, CLI
     behaviour, runtime behaviour that existing scripts rely on, or other

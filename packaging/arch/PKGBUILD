@@ -60,7 +60,24 @@ optdepends=(
 source=()
 sha256sums=()
 
+# The project was renamed from `keyloom` to `loomwright`. A user who installed
+# the old package keeps its files, its command names and its desktop entry.
+# `replaces` lets pacman remove the old package during the upgrade, and
+# `provides` keeps the old name resolvable, so `pacman -S keyloom` still
+# finds a package.
+replaces=('keyloom')
+provides=('keyloom')
+
 _loomwright_source_dir="${LOOMWRIGHT_SOURCE_DIR:-${startdir}/../..}"
+
+# The files the legacy `keyloom` package installed under the old name. The
+# package that replaces it owns the command names now, so only the desktop
+# integration files and the license directory are left to clean up.
+_legacy_keyloom_files=(
+    /usr/share/applications/keyloom.desktop
+    /usr/share/icons/hicolor/scalable/apps/keyloom.svg
+    /usr/share/mime/packages/keyloom.xml
+)
 
 # Set LOOMWRIGHT_BUILD_TESTS=ON when invoking makepkg to build the test suite and
 # run it in check() (e.g. makepkg -si LOOMWRIGHT_BUILD_TESTS=ON).
@@ -100,9 +117,31 @@ package() {
     # not subject to the unowned-stub conflicts that path can hit.
     install -Dm644 "${_loomwright_source_dir}/packaging/arch/mimeapps.list" \
         "${pkgdir}/etc/xdg/mimeapps.list"
+
+    # The old command names keep working, so a script, a desktop entry or a
+    # scheduled job that still calls `keyloom` keeps running after the
+    # upgrade.
+    ln -s loomwright "${pkgdir}/usr/bin/keyloom"
+    ln -s loomwright-terminal "${pkgdir}/usr/bin/keyloom-terminal"
+}
+
+# Remove the desktop integration files of the legacy `keyloom` package. The
+# package that replaces it takes its files with it, but a user who removed the
+# old package by hand can still have them, and the legacy desktop entry would
+# show up in the application menu next to the new one.
+remove_legacy_keyloom() {
+    # While the old package is still installed, its files belong to it.
+    pacman -Qq keyloom >/dev/null 2>&1 && return 0
+    local legacy
+    for legacy in "${_legacy_keyloom_files[@]}"; do
+        [[ -e $legacy ]] || continue
+        rm -f "$legacy"
+    done
+    rm -rf /usr/share/licenses/keyloom
 }
 
 post_install() {
+    remove_legacy_keyloom
     update-mime-database /usr/share/mime
     update-desktop-database /usr/share/applications
     # Fails without the hicolor icon theme index; the icon is still installed.

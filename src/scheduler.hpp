@@ -39,6 +39,13 @@ struct Task {
         /// cancellation until the scheduler resumes it again.
         bool cancel_pending = false;
         bool started = false;
+        /// True while the frame has an entry in `Scheduler::ready_` or
+        /// `Scheduler::deferred_`. Lets a push deduplicate in O(1) instead of
+        /// scanning the queue. Cleared when the frame is popped. A frame that
+        /// is already finished and destroyed is never dereferenced: pops check
+        /// `known_` first.
+        bool ready_queued = false;
+        bool deferred_queued = false;
         std::exception_ptr error;
         /// The frame that awaits this one. It is handed back to the driver
         /// instead of resumed inline, so a chain of awaits cannot grow the
@@ -156,6 +163,7 @@ public:
 
 private:
     void pump();
+    void push_ready(handle_type handle);
     /// Resume a frame once, without draining the deferred queue.
     void resume_frame(handle_type handle);
     void resume(handle_type handle);
@@ -181,7 +189,7 @@ private:
     std::uint64_t timer_sequence_ = 0;
     // A timer belongs to one particular suspension, not merely a frame address.
     std::unordered_map<handle_type, std::uint64_t, HandleHash> timer_waits_;
-    std::map<int, handle_type> fd_waiters_;
+    std::unordered_map<int, handle_type> fd_waiters_;
     std::unordered_set<handle_type, HandleHash> live_;
     std::vector<handle_type> live_order_;
     std::map<handle_type, std::set<handle_type, HandleLess>, HandleLess> shutdown_dependencies_;

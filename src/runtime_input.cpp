@@ -94,6 +94,10 @@ Task Runtime::read_device(InputDevice* device, std::shared_ptr<PassthroughDevice
     } guard{this, device, passthrough.get(), path};
 
     std::vector<unsigned char> buffer(sizeof(input_event) * 64);
+    // Reused across reads so a burst of input does not allocate a fresh
+    // vector per batch.
+    std::vector<RawEvent> events;
+    events.reserve(64);
     while (true) {
         co_await readable(device->fd());
         const ssize_t bytes = ::read(device->fd(), buffer.data(), buffer.size());
@@ -108,8 +112,7 @@ Task Runtime::read_device(InputDevice* device, std::shared_ptr<PassthroughDevice
         }
         const auto* raw = reinterpret_cast<const input_event*>(buffer.data());
         const size_t count = static_cast<size_t>(bytes) / sizeof(input_event);
-        std::vector<RawEvent> events;
-        events.reserve(count);
+        events.clear();
         for (size_t index = 0; index < count; ++index) {
             events.push_back(RawEvent{raw[index].type, raw[index].code, raw[index].value});
         }

@@ -205,8 +205,10 @@ Value apply_binary(BinaryOp op, const Value& left, const Value& right) {
                 return Value::of_str(left.text + right.text);
             }
             if (left.is_list() && right.is_list()) {
+                const std::vector<Value>& right_items = right.list_items();
                 std::vector<Value> joined = left.list_items();
-                for (const Value& item : right.list_items()) joined.push_back(item);
+                joined.reserve(joined.size() + right_items.size());
+                for (const Value& item : right_items) joined.push_back(item);
                 return Value::of_list(std::move(joined));
             }
             break;
@@ -1298,20 +1300,16 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
     }
 }
 
-bool Runtime::lookup_variable(const std::string& name, Value& out) const {
+const Value* Runtime::lookup_variable(const std::string& name) const {
     // Most scripts run at the top level, so there is no function scope to
     // look in.
     if (!function_scopes_.empty()) [[unlikely]] {
         const auto local = function_scopes_.back().find(name);
-        if (local != function_scopes_.back().end()) {
-            out = local->second;
-            return true;
-        }
+        if (local != function_scopes_.back().end()) return &local->second;
     }
     const auto found = variables_.find(name);
-    if (found == variables_.end()) return false;
-    out = found->second;
-    return true;
+    if (found == variables_.end()) return nullptr;
+    return &found->second;
 }
 
 void Runtime::assign_variable(const std::string& name, Value value) {
@@ -1858,11 +1856,8 @@ Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
         case Expr::Kind::Variable: {
             if (expr.name == "event_key") return Value::of_str(context.key);
             if (expr.name == "event_edge") return Value::of_str(context.edge);
-            Value value;
-            if (!lookup_variable(expr.name, value)) [[unlikely]] {
-                throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr.name));
-            }
-            return value;
+            if (const Value* found = lookup_variable(expr.name)) return *found;
+            [[unlikely]] throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr.name));
         }
         case Expr::Kind::List: {
             std::vector<Value> values;

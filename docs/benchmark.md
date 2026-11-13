@@ -1,15 +1,40 @@
 # Benchmark
 
-Measured build and test performance for Loomwright 0.4.0 on the maintainer's
+Measured build and test performance for Loomwright 0.5.7 on the maintainer's
 machine (CachyOS, KDE Plasma, 4 jobs). Numbers are a snapshot, not a promise:
 always measure before and after a change and keep the evidence with the commit.
 
+## The runtime benchmark
+
+`loomwright_bench` (`tests/bench_runtime.cpp`) measures two synthetic workloads
+that approximate what a script does between two key presses:
+
+- `arith` — a nested integer-arithmetic loop with a string concatenation.
+- `await` — 10 000 calls to a user-defined function per repetition, so every
+  call goes through the awaiting evaluator and the scheduler's coroutine
+  completion path.
+
+Neither workload prints, after 0.5.7 removed the `log` that made the old
+benchmark measure stdout. The front end (parse) is measured across the same
+trials. Usage:
+
+```bash
+loomwright_bench [repetitions] [trials]   # default: 20 7
+taskset -c 0 ./build/release-clang/loomwright_bench 20 7
+```
+
+After a warm-up pass, each workload is timed in `trials` independent batches
+of `repetitions` reps; both the best and the median time per repetition are
+printed, along with the allocation count per run. The best time tracks code
+generation, the median tracks a typical run. Compare the same build settings
+before and after a change, and prefer pinning to one core for the lowest
+noise.
+
 ## Compiler comparison
 
-The runtime benchmark (`tests/bench_runtime.cpp`, built as `loomwright_bench`)
-parses a script and runs a loop of integer arithmetic. Measured on CachyOS
-with GCC 16.2.1 and Clang 23.1.4, both at `-O3`, 20 repetitions of 100 000
-inner iterations, minimum of eight runs pinned to one core:
+The compiler comparison from 0.4.0 still holds (same workload shape; the
+numbers predate the harness rewrite): both compilers at `-O3`, minimum of
+eight runs pinned to one core:
 
 | Compiler | Run time per repetition | Binary size |
 | --- | --- | --- |
@@ -82,6 +107,47 @@ tables cannot silently drift out of sorted order.
 | Keyword interning (`TokenKind::Keyword`) | Rejected: the language's keywords are soft and context-dependent; parse is 0.01 ms of a 25 ms workload |
 | Heterogeneous lookup for `unordered_map` (`std::hash<std::string_view>`) | Rejected after measurement: 10–12 % slower (`27.6`–`28.4 ms` vs `24.5`–`25.1 ms`); surface as-is has no temporary-string call sites that benefit |
 
+## Runtime performance pass (0.5.7)
+
+The runtime benchmark was rewritten first: the old workload printed
+`log str(total)` once per repetition, so the timing included stdout; both
+workloads are now print-free, and the harness reports best and median over
+independent trials instead of a single cold pass. A second workload, `await`,
+forces 10 000 awaiting user-function calls per repetition so the coroutine
+completion path is measured too. Code unchanged, new harness, same machine
+(pinned to one core, load average ~2):
+
+| Workload | Before (0.5.6) | After (0.5.7) |
+| --- | --- | --- |
+| arith | best 22.8 ms, median 23.2 ms | best ~21.3–22.2 ms, median ~21.5–22.4 ms |
+| await | best ~146.8–148.8 ms, median ~147.7–149.7 ms | best ~147.4–150.7 ms, median ~147.7–154.0 ms |
+| arith allocations | 29 972 per run | 29 972 per run |
+
+Allocation counts are identical; the wins are smaller constant factors. The
+changes:
+
+- `lookup_variable` returns a borrowed pointer instead of copying the whole
+  `Value` into an out-parameter (one 64-byte copy plus a string allocation
+  per variable read is now one dereference).
+- List concatenation reserves the target capacity instead of growing by
+  doubling next to a fresh `left` copy.
+- Input reads reuse the decode buffer and the `RawEvent` vector across
+  batches instead of allocating per batch.
+- Integer-to-string conversions use `std::to_chars` (like `format_float`
+  already did) and list formatting pre-reserves an estimate.
+- The scheduler queues admit O(1) deduplication: a `ready_queued` /
+  `deferred_queued` flag on each frame replaces the `std::find` /
+  `std::erase` linear scans in `defer_resume`, `forget_task`,
+  `notify_finished` and `cancel`. Frames already queued when they finish are
+  skipped at pop time via `known_`, which is also what made dropping the
+  eager erases safe. `fd_waiters_` is now an `unordered_map`.
+
+The scheduler change is asymptotically better (finish and cancel paths were
+O(n) scans over queues that grow with the number of parked frames) but
+measures at parity on these workloads, where queues stay short; it is kept
+for dispatch-heavy scripts, not for the numbers above. All 157 unit tests
+pass.
+
 ## Results at 0.4.0
 
 | Measurement | Before | After |
@@ -134,6 +200,7 @@ performance critical, and the code it exercises is still optimized.
 | Precompiled header | Rejected: only ~4 % faster, and its dependency tracking produced stale objects |
 | `-O2` instead of `-O3` | No measurable difference |
 | ccache single-preprocessing mode | No gain |
+| Symmetric transfer from `FinalAwaiter` (return the continuation instead of deferring to the scheduler's loop) | Rejected after measurement in 0.5.7: parity on `await` (~147–150 ms) but ~1 ms slower on `arith` per run (best 22.2–22.7 ms vs 21.3–22.2 ms). The direct transfer bypasses `resume_frame`'s guards and the "one place frames run" invariant; the deferred path stays. |
 
 ## How to reproduce
 

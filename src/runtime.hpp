@@ -149,7 +149,9 @@ private:
     bool chord_modifiers_held(const Node& event) const;
 
     /// Read a variable, preferring the innermost function scope.
-    bool lookup_variable(const std::string& name, Value& out) const;
+    /// Borrowed pointer to the variable, or nullptr when it does not exist.
+    /// The pointer is valid until the variable is assigned or erased.
+    const Value* lookup_variable(const std::string& name) const;
     /// Write a variable into the innermost function scope, or into the script
     /// scope when no function is running.
     void assign_variable(const std::string& name, Value value);

@@ -36,13 +36,22 @@ std::string lower_ascii(std::string_view text) {
 
 /// The source form of a list: elements in brackets, separated by commas.
 std::string format_list(const std::vector<Value>& values) {
-    std::string out = "[";
+    std::string out;
+    out.reserve(values.size() * 8 + 2);
+    out += "[";
     for (size_t index = 0; index < values.size(); ++index) {
         if (index > 0) out += ", ";
         out += values[index].repr();
     }
     out += "]";
     return out;
+}
+
+/// A long long as text, via from_chars/to_chars instead of std::to_string.
+std::string int_text(long long value) {
+    char buffer[24];
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    return std::string(buffer, result.ptr);
 }
 
 }  // namespace
@@ -218,7 +227,7 @@ double Value::as_double() const {
 std::string Value::to_string() const {
     switch (type) {
         case Type::None: return "none";
-        case Type::Int: return std::to_string(integer);
+        case Type::Int: return int_text(integer);
         case Type::Float: return format_float(real);
         case Type::Bool: return boolean ? "true" : "false";
         case Type::Str: return text;
@@ -230,7 +239,7 @@ std::string Value::to_string() const {
 std::string Value::repr() const {
     switch (type) {
         case Type::None: return "none";
-        case Type::Int: return std::to_string(integer);
+        case Type::Int: return int_text(integer);
         case Type::Float: return format_float(real);
         case Type::Bool: return boolean ? "true" : "false";
         case Type::Str: return quote_string(text);

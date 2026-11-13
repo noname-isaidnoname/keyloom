@@ -137,14 +137,24 @@ void Scheduler::spawn(Task task) {
     live_.insert(task.handle);
     live_order_.push_back(task.handle);
     if (active_root_ && is_live(active_root_)) add_shutdown_dependency(task.handle, active_root_);
-    ready_.push_back(task.handle);
+    push_ready(task.handle);
+}
+
+void Scheduler::push_ready(handle_type handle) {
+    // A frame can be queued twice (a stop wait and an fd notification, or a
+    // cancel and a completion race). The flag keeps the queue free of
+    // duplicate entries in O(1) instead of scanning it.
+    if (handle.promise().ready_queued) return;
+    handle.promise().ready_queued = true;
+    ready_.push_back(handle);
 }
 
 void Scheduler::defer_resume(handle_type handle) {
     if (!handle) return;
     // A frame can be handed back more than once (a cancel and a completion
     // race), so keep the queue free of duplicates.
-    if (std::find(deferred_.begin(), deferred_.end(), handle) != deferred_.end()) return;
+    if (handle.promise().deferred_queued) return;
+    handle.promise().deferred_queued = true;
     deferred_.push_back(handle);
     ++deferred_resume_count_;
 }
@@ -155,9 +165,9 @@ void Scheduler::register_task(handle_type handle) {
 
 void Scheduler::forget_task(handle_type handle) {
     known_.erase(handle);
-    std::erase(ready_, handle);
-    std::erase(deferred_, handle);
     remove_waits(handle);
+    // The frame may still have an entry in ready_ or deferred_; pops skip
+    // entries whose frame is no longer in known_, so they are left alone.
     for (auto entry = fd_waiters_.begin(); entry != fd_waiters_.end();) {
         if (entry->second == handle) {
             ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, entry->first, nullptr);
@@ -179,7 +189,7 @@ void Scheduler::remove_waits(handle_type handle) {
 void Scheduler::request_stop() {
     stop_ = true;
     for (handle_type handle : stop_waiters_) {
-        if (known_.find(handle) != known_.end()) ready_.push_back(handle);
+        if (known_.find(handle) != known_.end()) push_ready(handle);
     }
     stop_waiters_.clear();
 }
@@ -208,16 +218,16 @@ void Scheduler::cancel(handle_type handle) {
         remove_waits(frame);
         if (frame == deepest) break;
     }
-    // A stop or fd notification may already have queued this suspension. A
-    // second wake would resume whatever the coroutine awaits next, prematurely.
-    std::erase(ready_, deepest);
-    if (std::find(deferred_.begin(), deferred_.end(), deepest) != deferred_.end()) {
+    if (deepest.promise().deferred_queued) {
         // The frame is parked: the scheduler resumes it from its own queue, so
         // the await has to report the cancellation when that happens.
         deepest.promise().cancel_pending = true;
         return;
     }
-    ready_.push_back(deepest);
+    // If a stop or fd notification already queued this suspension, the flag
+    // deduplicates the push; the resumed frame observes `cancelled` at its
+    // await point and unwinds with TaskCancelled.
+    push_ready(deepest);
 }
 
 void Scheduler::cancel_all() {
@@ -231,14 +241,13 @@ void Scheduler::check_cancelled(handle_type handle) {
 
 void Scheduler::notify_finished(handle_type handle) {
     known_.erase(handle);
-    std::erase(ready_, handle);
     remove_waits(handle);
     live_.erase(handle);
     std::erase(live_order_, handle);
     remove_dependencies(handle);
     if (live_.size() <= 1 && !drain_waiters_.empty()) {
         for (handle_type waiter : drain_waiters_) {
-            if (known_.find(waiter) != known_.end()) ready_.push_back(waiter);
+            if (known_.find(waiter) != known_.end()) push_ready(waiter);
         }
         drain_waiters_.clear();
     }
@@ -280,7 +289,7 @@ void ReadableAwaiter::await_resume() {
 
 void Scheduler::wait_for_stop(handle_type handle) {
     if (stop_) {
-        ready_.push_back(handle);
+        push_ready(handle);
         return;
     }
     stop_waiters_.push_back(handle);
@@ -288,7 +297,7 @@ void Scheduler::wait_for_stop(handle_type handle) {
 
 void Scheduler::wait_for_drain(handle_type handle) {
     if (live_.size() <= 1) {
-        ready_.push_back(handle);
+        push_ready(handle);
         return;
     }
     drain_waiters_.push_back(handle);
@@ -330,6 +339,8 @@ void Scheduler::drain_deferred() {
     while (!deferred_.empty()) {
         const handle_type handle = deferred_.front();
         deferred_.pop_front();
+        if (known_.find(handle) == known_.end()) continue;
+        handle.promise().deferred_queued = false;
         resume_frame(handle);
     }
 }
@@ -340,6 +351,7 @@ void Scheduler::pump() {
         handle_type handle = ready_.front();
         ready_.pop_front();
         if (known_.find(handle) == known_.end()) continue;
+        handle.promise().ready_queued = false;
         resume(handle);
         // A pathological task that only awaits zero-duration work must not lock
         // out fd polling forever.
@@ -445,7 +457,7 @@ void Scheduler::run() {
                 handle_type handle = found->second;
                 fd_waiters_.erase(found);
                 ::epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr);
-                if (known_.find(handle) != known_.end()) ready_.push_back(handle);
+                if (known_.find(handle) != known_.end()) push_ready(handle);
             }
         } else if (count < 0 && errno != EINTR) {
             const int error = errno;
@@ -461,7 +473,7 @@ void Scheduler::run() {
             const auto wait = timer_waits_.find(timer.handle);
             if (wait != timer_waits_.end() && wait->second == timer.sequence) {
                 timer_waits_.erase(wait);
-                ready_.push_back(timer.handle);
+                push_ready(timer.handle);
             }
         }
     }

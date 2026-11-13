@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(loomwright
-    VERSION 0.5.4
+    VERSION 0.5.5
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 
@@ -12,9 +12,9 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
 # The reference compiler is Clang: on the runtime benchmark in
-# tests/bench_runtime.cpp it runs the workload about 15% faster than GCC and
-# produces a smaller binary (see docs/benchmark.md). GCC stays supported, and
-# the CI workflow builds with both.
+# tests/bench_runtime.cpp it runs the workload about 30% faster than GCC
+# (see docs/benchmark.md). GCC stays supported, and the CI workflow builds
+# with both.
 set(LOOMWRIGHT_REFERENCE_COMPILER "Clang")
 option(LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER
     "Fail the configure step unless the reference compiler (${LOOMWRIGHT_REFERENCE_COMPILER}) is used" OFF)
@@ -48,6 +48,7 @@ endif()
 message(STATUS "loomwright: C++ compiler ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 
 option(LOOMWRIGHT_USE_MOLD "Link with mold when the linker is installed" ON)
+option(LOOMWRIGHT_LTO "Link with link-time optimization when the toolchain supports it" ON)
 option(LOOMWRIGHT_SANITIZE "Build with the address and undefined behaviour sanitizers" OFF)
 option(LOOMWRIGHT_HARDEN "Enable the usual release hardening flags" ON)
 option(LOOMWRIGHT_WAYLAND "Enable native Wayland panels when GTK3 and wayland-client are available" ON)
@@ -69,6 +70,37 @@ if(LOOMWRIGHT_USE_MOLD AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
         add_link_options(-fuse-ld=mold)
         message(STATUS "loomwright: linking with mold (${LOOMWRIGHT_MOLD})")
     endif()
+endif()
+
+# Link-time optimization. The runtime is split over many translation units,
+# and the inliner only sees across them when the linker gets the bitcode, so
+# this is worth about 13% of the runtime benchmark. The linker has to be able
+# to read the bitcode: GCC's driver loads its own plugin, while Clang needs
+# mold or lld.
+set(LOOMWRIGHT_LTO_ENABLED OFF)
+if(LOOMWRIGHT_LTO AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+            set(LOOMWRIGHT_LTO_ENABLED ON)
+        elseif(LOOMWRIGHT_MOLD)
+            set(LOOMWRIGHT_LTO_ENABLED ON)
+        else()
+            find_program(LOOMWRIGHT_LLD ld.lld)
+            if(LOOMWRIGHT_LLD)
+                add_link_options(-fuse-ld=lld)
+                message(STATUS "loomwright: linking with lld (${LOOMWRIGHT_LLD})")
+                set(LOOMWRIGHT_LTO_ENABLED ON)
+            endif()
+        endif()
+    endif()
+endif()
+if(LOOMWRIGHT_LTO_ENABLED)
+    # Set before the targets are created so every one of them, including the
+    # test harness, links the bitcode the same way.
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+    message(STATUS "loomwright: link-time optimization enabled")
+else()
+    message(STATUS "loomwright: link-time optimization disabled")
 endif()
 
 include(GNUInstallDirs)

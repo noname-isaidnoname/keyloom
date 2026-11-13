@@ -12,6 +12,28 @@ namespace loomwright {
 struct Expr;
 using ExprPtr = std::shared_ptr<Expr>;
 
+/// The binary operators the language exposes. The parser resolves the
+/// spelling once, so the evaluator dispatches on an enum instead of
+/// comparing operator strings while a script runs.
+enum class BinaryOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Modulo,
+    Equal,
+    NotEqual,
+    Less,
+    LessEqual,
+    Greater,
+    GreaterEqual,
+    And,
+    Or,
+};
+
+/// The unary operators the language exposes.
+enum class UnaryOp { Negate, Plus, Not };
+
 /// An expression tree. `Literal` carries a value; `Variable`, `Unary` and
 /// `Binary` carry a name/operator; `Call` carries its function name and args;
 /// `List` carries its element expressions; `Index` carries a base and an index.
@@ -23,6 +45,14 @@ struct Expr {
     std::string name;
     std::vector<ExprPtr> args;
     int line = 1;
+    /// The resolved operator of a `Unary` or `Binary` node.
+    BinaryOp binary_op = BinaryOp::Add;
+    UnaryOp unary_op = UnaryOp::Negate;
+    /// True when the expression tree contains a call that may wait, such as a
+    /// call to a user-defined function. Such an expression needs a coroutine
+    /// to evaluate; an expression without one is evaluated without
+    /// suspending, which keeps the hot path free of coroutine frames.
+    bool may_wait = false;
 };
 
 enum class StmtKind {
@@ -108,6 +138,10 @@ struct Node {
     std::vector<Node> body;
     std::vector<Node> otherwise;
     int line = 1;
+    /// True when the statement, or anything below it, may wait: a `wait`, a
+    /// tap, a glide, or an expression that calls a user function. Such a
+    /// statement runs in a coroutine; everything else runs without one.
+    bool may_suspend = false;
 
     std::string kind_name() const { return is_event ? "event" : stmt_kind_name(stmt); }
 };

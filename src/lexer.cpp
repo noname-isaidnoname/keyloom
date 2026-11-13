@@ -20,13 +20,14 @@ size_t utf8_char_count(const std::string& text) {
     return chars;
 }
 
-std::string first_line_snippet(const std::string& source, size_t position) {
-    const std::string slice = source.substr(position, 24);
+/// The first line of the source at `position`, at most 24 characters long.
+std::string_view first_line_snippet(std::string_view source, size_t position) {
+    const std::string_view slice = source.substr(position, 24);
     const size_t newline = slice.find('\n');
-    return newline == std::string::npos ? slice : slice.substr(0, newline);
+    return newline == std::string_view::npos ? slice : slice.substr(0, newline);
 }
 
-[[noreturn]] void throw_unexpected(const std::string& source, size_t position, size_t line, size_t col) {
+[[noreturn]] void throw_unexpected(std::string_view source, size_t position, size_t line, size_t col) {
     const std::string character(1, source[position]);
     std::string message = "Unexpected character " + quote_string(character);
     message += " at " + std::to_string(line) + ":" + std::to_string(col);
@@ -72,7 +73,7 @@ const char* token_kind_name(TokenKind kind) {
     return "EOF";
 }
 
-std::string decode_string(const std::string& body) {
+std::string decode_string(std::string_view body) {
     std::string out;
     out.reserve(body.size());
     for (size_t i = 0; i < body.size(); ++i) {
@@ -100,6 +101,9 @@ std::string decode_string(const std::string& body) {
 
 std::vector<Token> tokenize(const std::string& source) {
     std::vector<Token> out;
+    // A source line usually holds a handful of tokens; reserving keeps the
+    // vector from growing while it is filled.
+    out.reserve(source.size() / 8 + 8);
     size_t position = 0;
     size_t line = 1;
     size_t col = 1;

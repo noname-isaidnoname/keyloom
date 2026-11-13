@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstddef>
 #include <iterator>
+#include <string_view>
 #include <linux/input.h>
 
 #include "errors.hpp"
@@ -27,12 +28,15 @@ struct ReverseKeyEntry {
 static_assert(std::size(kKeyTable) > 300, "the generated key table looks truncated");
 
 const KeyEntry* find_key_entry(const std::string& name) {
-    const KeyEntry probe{name.c_str(), 0};
     const auto* begin = std::begin(kKeyTable);
     const auto* end = std::end(kKeyTable);
-    const auto* found = std::lower_bound(begin, end, probe, [](const KeyEntry& entry, const KeyEntry& needle) {
-        return std::string(entry.name) < std::string(needle.name);
-    });
+    // The table is sorted by name, so the lookup is a binary search. The
+    // comparison works on views: building a string for every comparison would
+    // allocate once per step.
+    const auto* found = std::lower_bound(begin, end, name,
+                                         [](const KeyEntry& entry, const std::string& needle) {
+                                             return std::string_view(entry.name) < std::string_view(needle);
+                                         });
     if (found == end || name != found->name) return nullptr;
     return found;
 }
@@ -60,9 +64,22 @@ const std::unordered_map<std::string, int>& mouse_buttons() {
 }
 
 bool is_mouse_button(const std::string& name) {
-    std::string lowered = name;
-    for (char& c : lowered) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    return mouse_buttons().find(lowered) != mouse_buttons().end();
+    // The table has a handful of entries, so a case-insensitive comparison
+    // without a lowercase copy of the name is cheaper than building one.
+    for (const auto& entry : mouse_buttons()) {
+        if (name.size() != entry.first.size()) continue;
+        bool equal = true;
+        for (size_t index = 0; index < name.size(); ++index) {
+            const char left = static_cast<char>(std::tolower(static_cast<unsigned char>(name[index])));
+            const char right = static_cast<char>(std::tolower(static_cast<unsigned char>(entry.first[index])));
+            if (left != right) {
+                equal = false;
+                break;
+            }
+        }
+        if (equal) return true;
+    }
+    return false;
 }
 
 namespace {

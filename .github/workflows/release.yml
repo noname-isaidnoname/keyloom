@@ -37,7 +37,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache clang libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth xdotool imagemagick weston desktop-file-utils
+          sudo apt-get install -y ninja-build ccache clang lld libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth xdotool imagemagick weston desktop-file-utils
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ccache

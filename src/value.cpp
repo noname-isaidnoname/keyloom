@@ -47,6 +47,43 @@ std::string format_list(const std::vector<Value>& values) {
 
 }  // namespace
 
+ListBox::ListBox(std::vector<Value> values) {
+    storage_ = new Storage{std::move(values), 1};
+}
+
+ListBox::ListBox(const ListBox& other) : storage_(other.storage_) {
+    if (storage_ != nullptr) ++storage_->references;
+}
+
+ListBox& ListBox::operator=(const ListBox& other) {
+    if (this == &other) return *this;
+    Storage* incoming = other.storage_;
+    if (incoming != nullptr) ++incoming->references;
+    if (storage_ != nullptr && --storage_->references == 0) delete storage_;
+    storage_ = incoming;
+    return *this;
+}
+
+ListBox::ListBox(ListBox&& other) noexcept : storage_(other.storage_) {
+    other.storage_ = nullptr;
+}
+
+ListBox& ListBox::operator=(ListBox&& other) noexcept {
+    if (this == &other) return *this;
+    if (storage_ != nullptr && --storage_->references == 0) delete storage_;
+    storage_ = other.storage_;
+    other.storage_ = nullptr;
+    return *this;
+}
+
+ListBox::~ListBox() {
+    if (storage_ != nullptr && --storage_->references == 0) delete storage_;
+}
+
+std::vector<Value>& ListBox::values() { return storage_->values; }
+
+const std::vector<Value>& ListBox::values() const { return storage_->values; }
+
 Value Value::of_int(long long v) {
     Value value;
     value.type = Type::Int;
@@ -78,22 +115,22 @@ Value Value::of_str(std::string v) {
 Value Value::of_list(std::vector<Value> values) {
     Value value;
     value.type = Type::List;
-    value.items = std::make_shared<std::vector<Value>>(std::move(values));
+    value.items = ListBox(std::move(values));
     return value;
 }
 
 std::vector<Value>& Value::list_items() {
-    if (type != Type::List || !items) {
+    if (type != Type::List || items.empty()) {
         throw RuntimeErrorLoomwright("expected a list");
     }
-    return *items;
+    return items.values();
 }
 
 const std::vector<Value>& Value::list_items() const {
-    if (type != Type::List || !items) {
+    if (type != Type::List || items.empty()) {
         throw RuntimeErrorLoomwright("expected a list");
     }
-    return *items;
+    return items.values();
 }
 
 bool Value::truthy() const {
@@ -103,7 +140,7 @@ bool Value::truthy() const {
         case Type::Float: return real != 0.0;
         case Type::Bool: return boolean;
         case Type::Str: return !text.empty();
-        case Type::List: return items && !items->empty();
+        case Type::List: return !items.empty();
     }
     return false;
 }
@@ -185,7 +222,7 @@ std::string Value::to_string() const {
         case Type::Float: return format_float(real);
         case Type::Bool: return boolean ? "true" : "false";
         case Type::Str: return text;
-        case Type::List: return items ? format_list(*items) : "[]";
+        case Type::List: return items.empty() ? "[]" : format_list(items.values());
     }
     return "";
 }
@@ -197,7 +234,7 @@ std::string Value::repr() const {
         case Type::Float: return format_float(real);
         case Type::Bool: return boolean ? "true" : "false";
         case Type::Str: return quote_string(text);
-        case Type::List: return items ? format_list(*items) : "[]";
+        case Type::List: return items.empty() ? "[]" : format_list(items.values());
     }
     return "";
 }

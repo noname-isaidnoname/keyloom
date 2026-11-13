@@ -37,12 +37,12 @@ Task Task::promise_type::get_return_object() noexcept {
 }
 
 std::coroutine_handle<> Task::promise_type::FinalAwaiter::await_suspend(
-    std::coroutine_handle<promise_type> handle) noexcept {
-    Scheduler* scheduler = handle.promise().scheduler;
-    if (scheduler != nullptr) scheduler->notify_finished(handle);
-    const handle_type continuation = handle.promise().continuation;
-    if (!continuation) {
-        handle.destroy();
+    std::coroutine_handle<promise_type> frame) noexcept {
+    Scheduler* owner = frame.promise().scheduler;
+    if (owner != nullptr) owner->notify_finished(frame);
+    const handle_type awaiting = frame.promise().continuation;
+    if (!awaiting) {
+        frame.destroy();
         return std::noop_coroutine();
     }
     // Hand the awaiting frame back to the scheduler instead of resuming it
@@ -50,13 +50,13 @@ std::coroutine_handle<> Task::promise_type::FinalAwaiter::await_suspend(
     // so a script that awaits once per loop iteration grows the native stack
     // without bound and eventually overflows it. The scheduler resumes the
     // awaiter from its own loop, so the stack stays flat.
-    Scheduler* driver = continuation.promise().driver;
-    if (driver == nullptr) driver = handle.promise().driver;
-    if (driver != nullptr) {
-        driver->defer_resume(continuation);
+    Scheduler* runner = awaiting.promise().driver;
+    if (runner == nullptr) runner = frame.promise().driver;
+    if (runner != nullptr) {
+        runner->defer_resume(awaiting);
         return std::noop_coroutine();
     }
-    return continuation;
+    return awaiting;
 }
 
 bool Task::Awaiter::await_ready() const noexcept { return !handle || handle.done(); }
@@ -296,9 +296,9 @@ void Scheduler::wait_for_drain(handle_type handle) {
 
 void Scheduler::resume_frame(handle_type handle) {
     // A spawned task is live_; an awaited child is only known_. Both are resumable.
-    if (known_.find(handle) == known_.end()) return;
+    if (known_.find(handle) == known_.end()) [[unlikely]] return;
     // A frame that already reached its final suspend point must not be resumed.
-    if (handle.done()) return;
+    if (handle.done()) [[unlikely]] return;
     if (!handle.promise().started && handle.promise().cancelled) {
         notify_finished(handle);
         handle.destroy();

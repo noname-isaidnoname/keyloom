@@ -80,7 +80,11 @@ handler is the primary key.
 `Runtime::execute()` (`src/runtime.cpp`) switches on `StmtKind` and handles one
 statement. `execute_nodes()` runs a body and propagates `Break`, `Continue` and
 `Return` signals. `eval()` is a coroutine because a user-defined function may
-wait; it cannot return its result through a plain return value.
+wait; it cannot return its result through a plain return value. An expression
+that cannot wait is evaluated by `eval_pure()`, and a statement that cannot
+wait by `execute_pure()`, so the common path of a script does not allocate a
+coroutine frame. The parser marks the expressions and the statements that may
+wait.
 
 `call_function()` implements every builtin in the table below.
 `call_user_function()` binds parameters into a fresh scope, pushes it, runs the

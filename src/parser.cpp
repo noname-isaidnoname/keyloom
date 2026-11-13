@@ -6,6 +6,7 @@
 #include <utility>
 #include <vector>
 
+#include "builtins.hpp"
 #include "lexer.hpp"
 
 namespace loomwright {
@@ -291,7 +292,36 @@ private:
         return body;
     }
 
+    /// True when the statement, or anything below it, may wait: a `wait`, a
+    /// tap, a glide, or an expression that calls a user function. The runtime
+    /// uses this to run the common statements without a coroutine frame.
+    static bool may_suspend(const Node& node) {
+        switch (node.stmt) {
+            case StmtKind::Wait: return true;
+            case StmtKind::Mouse: return node.b == "tap";
+            case StmtKind::Key: return node.b == "tap";
+            case StmtKind::Cursor: return node.a == "glide";
+            default: break;
+        }
+        for (const auto& expr : node.exprs) {
+            if (expr->may_wait) return true;
+        }
+        for (const auto& child : node.body) {
+            if (child.may_suspend) return true;
+        }
+        for (const auto& child : node.otherwise) {
+            if (child.may_suspend) return true;
+        }
+        return false;
+    }
+
     Node parse_statement() {
+        Node node = parse_statement_body();
+        node.may_suspend = may_suspend(node);
+        return node;
+    }
+
+    Node parse_statement_body() {
         const Token start = current();
         Node node;
         node.line = start.line;
@@ -575,15 +605,36 @@ private:
         error("Expected a duration such as 250ms, 2s, or 1m");
     }
 
-    static int precedence_of(const std::string& op) {
-        static const std::unordered_map<std::string, int> table = {
-            {"or", 1},  {"||", 1},  {"and", 2}, {"&&", 2},
-            {"==", 3},  {"!=", 3},  {"<", 3},   {"<=", 3},
-            {">", 3},   {">=", 3},  {"+", 4},   {"-", 4},
-            {"*", 5},   {"/", 5},   {"%", 5},
-        };
-        const auto found = table.find(op);
-        return found == table.end() ? -1 : found->second;
+    /// The operators the expression parser accepts, with their precedence.
+    struct OperatorInfo {
+        int precedence;
+        BinaryOp op;
+    };
+
+    static bool operator_info(const std::string& op, OperatorInfo& out) {
+        if (op == "or" || op == "||") { out = {1, BinaryOp::Or}; return true; }
+        if (op == "and" || op == "&&") { out = {2, BinaryOp::And}; return true; }
+        if (op == "==") { out = {3, BinaryOp::Equal}; return true; }
+        if (op == "!=") { out = {3, BinaryOp::NotEqual}; return true; }
+        if (op == "<") { out = {3, BinaryOp::Less}; return true; }
+        if (op == "<=") { out = {3, BinaryOp::LessEqual}; return true; }
+        if (op == ">") { out = {3, BinaryOp::Greater}; return true; }
+        if (op == ">=") { out = {3, BinaryOp::GreaterEqual}; return true; }
+        if (op == "+") { out = {4, BinaryOp::Add}; return true; }
+        if (op == "-") { out = {4, BinaryOp::Subtract}; return true; }
+        if (op == "*") { out = {5, BinaryOp::Multiply}; return true; }
+        if (op == "/") { out = {5, BinaryOp::Divide}; return true; }
+        if (op == "%") { out = {5, BinaryOp::Modulo}; return true; }
+        return false;
+    }
+
+    /// True when one of the arguments may wait. A call to a user-defined
+    /// function may wait, so the evaluator needs a coroutine for it.
+    static bool args_may_wait(const std::vector<ExprPtr>& args) {
+        for (const auto& argument : args) {
+            if (argument->may_wait) return true;
+        }
+        return false;
     }
 
     ExprPtr parse_expr(int min_precedence = 0) {
@@ -609,6 +660,8 @@ private:
                 left->kind = Expr::Kind::Call;
                 left->name = ident;
                 left->line = token.line;
+                // A built-in function never waits; a user-defined function may.
+                left->may_wait = !is_builtin_function(ident);
                 if (!accept(")")) {
                     while (true) {
                         left->args.push_back(parse_expr());
@@ -629,7 +682,11 @@ private:
             left->kind = Expr::Kind::Unary;
             left->name = token.value.text;
             left->line = token.line;
+            left->unary_op = token.value.text == "-"   ? UnaryOp::Negate
+                             : token.value.text == "+" ? UnaryOp::Plus
+                                                      : UnaryOp::Not;
             left->args.push_back(parse_expr(6));
+            left->may_wait = args_may_wait(left->args);
         } else if (token.value.type == Value::Type::Str && token.value.text == "(") {
             left = parse_expr();
             expect(")");
@@ -644,6 +701,7 @@ private:
                     expect(",");
                 }
             }
+            left->may_wait = args_may_wait(left->args);
         } else {
             raise_at("Expected an expression", token);
         }
@@ -658,20 +716,24 @@ private:
             node->line = index->line;
             node->args.push_back(left);
             node->args.push_back(index);
+            node->may_wait = args_may_wait(node->args);
             left = node;
         }
 
         while (current().kind == TokenKind::Op && current().value.type == Value::Type::Str) {
             const std::string op = current().value.text;
-            const int precedence = precedence_of(op);
-            if (precedence < min_precedence || precedence < 0) break;
+            OperatorInfo info{};
+            if (!operator_info(op, info)) break;
+            if (info.precedence < min_precedence) break;
             advance();
             ExprPtr node = std::make_shared<Expr>();
             node->kind = Expr::Kind::Binary;
             node->name = op;
+            node->binary_op = info.op;
             node->line = current().line;
             node->args.push_back(left);
-            node->args.push_back(parse_expr(precedence + 1));
+            node->args.push_back(parse_expr(info.precedence + 1));
+            node->may_wait = args_may_wait(node->args);
             left = node;
         }
         return left;

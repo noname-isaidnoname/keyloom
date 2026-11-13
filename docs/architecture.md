@@ -167,8 +167,12 @@ per matching event block (`Runtime::spawn_background`) and passes an
 event.
 
 `execute_nodes` runs a block; `execute` switches on `StmtKind` and handles one
-statement. `eval` evaluates expressions and is a coroutine because a
-user-defined function may wait. `call_function` implements builtins;
+statement. A statement that cannot wait runs in `execute_pure`, without a
+coroutine frame; the parser marks the statements that may wait (`wait`, a tap,
+a glide, an expression that calls a user function) in `Node::may_suspend`.
+`eval` evaluates expressions and is a coroutine because a user-defined function
+may wait; `eval_pure` evaluates an expression that cannot wait, without a
+coroutine frame. `call_function` implements builtins;
 `call_user_function` pushes a fresh scope, binds parameters, and caps recursion
 at `kMaxCallDepth = 32`. Loops cap at `kMaxLoop = 10000`.
 

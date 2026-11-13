@@ -9,6 +9,8 @@
 #include <map>
 #include <queue>
 #include <set>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <sys/epoll.h>
 
@@ -80,6 +82,14 @@ struct Task {
 struct HandleLess {
     bool operator()(Task::handle_type left, Task::handle_type right) const {
         return left.address() < right.address();
+    }
+};
+
+/// The hash of a coroutine frame. The frames are identified by their
+/// address, so the hash is the address itself.
+struct HandleHash {
+    std::size_t operator()(Task::handle_type handle) const noexcept {
+        return std::hash<const void*>{}(handle.address());
     }
 };
 
@@ -170,12 +180,12 @@ private:
     std::priority_queue<Timer, std::vector<Timer>, TimerLater> timers_;
     std::uint64_t timer_sequence_ = 0;
     // A timer belongs to one particular suspension, not merely a frame address.
-    std::map<handle_type, std::uint64_t, HandleLess> timer_waits_;
+    std::unordered_map<handle_type, std::uint64_t, HandleHash> timer_waits_;
     std::map<int, handle_type> fd_waiters_;
-    std::set<handle_type, HandleLess> live_;
+    std::unordered_set<handle_type, HandleHash> live_;
     std::vector<handle_type> live_order_;
     std::map<handle_type, std::set<handle_type, HandleLess>, HandleLess> shutdown_dependencies_;
-    std::set<handle_type, HandleLess> known_;
+    std::unordered_set<handle_type, HandleHash> known_;
     handle_type active_root_{};
     std::deque<handle_type> deferred_;
     std::size_t deferred_resume_count_ = 0;

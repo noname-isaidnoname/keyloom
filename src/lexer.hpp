@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "errors.hpp"
@@ -26,6 +27,6 @@ struct Token {
 std::vector<Token> tokenize(const std::string& source);
 
 /// Decode the language's escape set once (`\\n` stays a backslash plus `n`).
-std::string decode_string(const std::string& body);
+std::string decode_string(std::string_view body);
 
 }  // namespace loomwright

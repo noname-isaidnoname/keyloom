@@ -7,6 +7,38 @@
 
 namespace loomwright {
 
+struct Value;
+
+/// Shared, mutable storage for a list. The runtime runs on a single thread,
+/// so the reference count is a plain counter: copying a value that holds a
+/// list costs no atomic operation, unlike a shared pointer.
+class ListBox {
+public:
+    ListBox() = default;
+    explicit ListBox(std::vector<Value> values);
+
+    ListBox(const ListBox& other);
+    ListBox& operator=(const ListBox& other);
+    ListBox(ListBox&& other) noexcept;
+    ListBox& operator=(ListBox&& other) noexcept;
+    ~ListBox();
+
+    /// The elements. The storage is shared, so a change is visible in every
+    /// copy of the list.
+    std::vector<Value>& values();
+    const std::vector<Value>& values() const;
+    /// True when the box holds no list at all.
+    bool empty() const { return storage_ == nullptr; }
+
+private:
+    struct Storage {
+        std::vector<Value> values;
+        std::size_t references = 1;
+    };
+
+    Storage* storage_ = nullptr;
+};
+
 /// A .loom runtime value. The language has four scalar shapes (int, float,
 /// bool, string) plus "no value", because script semantics such as
 /// `str(1.5)`, `bool("")` and `round()` depend on them. Lists are the
@@ -21,7 +53,7 @@ struct Value {
     std::string text;
     /// List elements. The storage is shared between copies, so `append`
     /// mutates a list in place and every copy sees the change.
-    std::shared_ptr<std::vector<Value>> items;
+    ListBox items;
 
     Value() = default;
 

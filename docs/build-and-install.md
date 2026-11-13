@@ -78,6 +78,7 @@ Variables: `JOBS=8`, `PREFIX=/usr/local`, `BUILD=build/release`.
 | `BUILD_TESTING` | ON (presets) | Build the test harness, probes and integration tests |
 | `LOOMWRIGHT_USE_MOLD` | ON | Link with `mold` when it is installed |
 | `LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER` | OFF | Fail the configure step unless Clang is the C++ compiler |
+| `LOOMWRIGHT_LTO` | ON | Link with link-time optimization when the linker can read the bitcode |
 | `LOOMWRIGHT_SANITIZE` | OFF | Build with `-fsanitize=address,undefined` |
 | `LOOMWRIGHT_HARDEN` | ON | `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3`, `-fPIE` |
 | `LOOMWRIGHT_WAYLAND` | ON | Build native Wayland panels if GTK3 and wayland-client are available |
@@ -86,6 +87,11 @@ Variables: `JOBS=8`, `PREFIX=/usr/local`, `BUILD=build/release`.
 `LOOMWRIGHT_SANITIZE` and `LOOMWRIGHT_HARDEN` are mutually exclusive in practice: the
 sanitize preset turns hardening off because the sanitizers replace the
 allocator and libc's own checks add nothing.
+
+`LOOMWRIGHT_LTO` only applies to a release build, and only when the linker can
+read the bitcode: GCC's driver loads its own plugin, while Clang needs `mold`
+or `lld`. When neither is available the configure step says that link-time
+optimization is disabled and the build works without it.
 
 ## Compiler
 

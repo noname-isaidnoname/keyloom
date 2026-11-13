@@ -30,6 +30,21 @@
 namespace loomwright {
 namespace {
 
+/// Evaluate an expression into `out`. An expression that cannot wait is
+/// evaluated without a coroutine, so the hot path of a script does not
+/// allocate a coroutine frame for every operation. Only an expression that
+/// calls a user-defined function needs the awaiting evaluator, because such a
+/// call may wait for the function body.
+#define LOOMWRIGHT_EVAL(expression, context, out)                              \
+    do {                                                                        \
+        const ExprPtr& loomwright_expression_ = (expression);                   \
+        if (loomwright_expression_->may_wait) {                                 \
+            co_await eval(loomwright_expression_, (context), (out));            \
+        } else {                                                                \
+            (out) = eval_pure(*loomwright_expression_, (context));              \
+        }                                                                       \
+    } while (false)
+
 using detail::lower_ascii;
 using detail::split_on;
 using detail::trim_ascii;
@@ -129,6 +144,115 @@ int compare_values(const Value& left, const Value& right) {
     }
     throw RuntimeErrorLoomwright(std::string("'<' not supported between instances of '") + type_name(left) +
                               "' and '" + type_name(right) + "'");
+}
+
+/// The spelling of a binary operator, for the error messages.
+const char* binary_op_text(BinaryOp op) {
+    switch (op) {
+        case BinaryOp::Add: return "+";
+        case BinaryOp::Subtract: return "-";
+        case BinaryOp::Multiply: return "*";
+        case BinaryOp::Divide: return "/";
+        case BinaryOp::Modulo: return "%";
+        case BinaryOp::Equal: return "==";
+        case BinaryOp::NotEqual: return "!=";
+        case BinaryOp::Less: return "<";
+        case BinaryOp::LessEqual: return "<=";
+        case BinaryOp::Greater: return ">";
+        case BinaryOp::GreaterEqual: return ">=";
+        case BinaryOp::And: return "and";
+        case BinaryOp::Or: return "or";
+    }
+    return "?";
+}
+
+/// The result of a unary operator on an evaluated operand.
+Value apply_unary(UnaryOp op, const Value& value) {
+    switch (op) {
+        case UnaryOp::Negate:
+            if (value.type == Value::Type::Float) return Value::of_float(-value.real);
+            return Value::of_int(-value.as_int());
+        case UnaryOp::Plus:
+            return value;
+        case UnaryOp::Not:
+            return Value::of_bool(!value.truthy());
+    }
+    return Value::none();
+}
+
+/// The result of a binary operator on two evaluated operands. The operands
+/// are already evaluated, so the operator itself never waits.
+Value apply_binary(BinaryOp op, const Value& left, const Value& right) {
+    switch (op) {
+        case BinaryOp::Equal:
+            return Value::of_bool(value_equals(left, right));
+        case BinaryOp::NotEqual:
+            return Value::of_bool(!value_equals(left, right));
+        case BinaryOp::Less:
+        case BinaryOp::LessEqual:
+        case BinaryOp::Greater:
+        case BinaryOp::GreaterEqual: {
+            const int comparison = compare_values(left, right);
+            switch (op) {
+                case BinaryOp::Less: return Value::of_bool(comparison < 0);
+                case BinaryOp::LessEqual: return Value::of_bool(comparison <= 0);
+                case BinaryOp::Greater: return Value::of_bool(comparison > 0);
+                default: return Value::of_bool(comparison >= 0);
+            }
+        }
+        case BinaryOp::Add: {
+            if (left.type == Value::Type::Str && right.type == Value::Type::Str) {
+                return Value::of_str(left.text + right.text);
+            }
+            if (left.is_list() && right.is_list()) {
+                std::vector<Value> joined = left.list_items();
+                for (const Value& item : right.list_items()) joined.push_back(item);
+                return Value::of_list(std::move(joined));
+            }
+            break;
+        }
+        default:
+            break;
+    }
+    if (!numeric_like(left) || !numeric_like(right)) {
+        throw RuntimeErrorLoomwright("unsupported operand type(s) for " + std::string(binary_op_text(op)) +
+                                     ": '" + type_name(left) + "' and '" + type_name(right) + "'");
+    }
+    const bool want_float = left.type == Value::Type::Float || right.type == Value::Type::Float;
+    switch (op) {
+        case BinaryOp::Divide: {
+            const double divisor = right.as_double();
+            if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
+            return Value::of_float(left.as_double() / divisor);
+        }
+        case BinaryOp::Modulo: {
+            if (!want_float) {
+                const long long divisor = right.as_int();
+                if (divisor == 0) throw RuntimeErrorLoomwright("Division by zero");
+                const long long value = left.as_int();
+                long long result = value % divisor;
+                if (result != 0 && ((result < 0) != (divisor < 0))) result += divisor;
+                return Value::of_int(result);
+            }
+            const double divisor = right.as_double();
+            if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
+            double result = std::fmod(left.as_double(), divisor);
+            if (result != 0.0 && ((result < 0.0) != (divisor < 0.0))) result += divisor;
+            return Value::of_float(result);
+        }
+        case BinaryOp::Add:
+            return want_float ? Value::of_float(left.as_double() + right.as_double())
+                              : Value::of_int(left.as_int() + right.as_int());
+        case BinaryOp::Subtract:
+            return want_float ? Value::of_float(left.as_double() - right.as_double())
+                              : Value::of_int(left.as_int() - right.as_int());
+        case BinaryOp::Multiply:
+            return want_float ? Value::of_float(left.as_double() * right.as_double())
+                              : Value::of_int(left.as_int() * right.as_int());
+        default:
+            break;
+    }
+    throw RuntimeErrorLoomwright("unsupported operator " + quote_string(binary_op_text(op)));
 }
 
 size_t utf8_length(const std::string& text) {
@@ -712,31 +836,50 @@ Task Runtime::dispatch(const Node& event, std::string key, std::string edge) {
 
 Task Runtime::execute_nodes(const std::vector<Node>& nodes, const EventContext& context) {
     for (const auto& node : nodes) {
-        if (scheduler_.stop_requested()) co_return;
-        co_await execute(node, context);
+        if (scheduler_.stop_requested()) [[unlikely]] co_return;
+        if (node.may_suspend) {
+            co_await execute(node, context);
+        } else {
+            // A statement that cannot wait runs without a coroutine frame.
+            execute_pure(node, context);
+        }
     }
 }
 
-Task Runtime::execute(const Node& node, const EventContext& context) {
+void Runtime::execute_nodes_pure(const std::vector<Node>& nodes, const EventContext& context) {
+    for (const auto& node : nodes) {
+        if (scheduler_.stop_requested()) [[unlikely]] return;
+        execute_pure(node, context);
+    }
+}
+
+std::string Runtime::mouse_owner(const Node& node, const EventContext& context) const {
+    if (!node.c.empty()) return node.c;
+    return "default:" + (context.key.empty() ? std::string("script") : context.key) + ":" + node.a;
+}
+
+std::vector<std::string> Runtime::key_names(const Node& node) const {
+    std::vector<std::string> names;
+    for (const auto& part : split_on(node.a, '+')) names.push_back(canonical_key(part));
+    return names;
+}
+
+/// The action of a statement whose expressions are already evaluated. `first`
+/// and `second` hold the first and the second expression of the statement; a
+/// statement with fewer expressions ignores the extra ones.
+void Runtime::run_action(const Node& node, const Value& first, const Value& second,
+                         const EventContext& context) {
     switch (node.stmt) {
         case StmtKind::Cursor: {
             if (node.a == "warp") {
-                Value x_value;
-                Value y_value;
-                co_await eval(node.exprs.at(0), context, x_value);
-                co_await eval(node.exprs.at(1), context, y_value);
-                const int x = static_cast<int>(x_value.as_int());
-                const int y = static_cast<int>(y_value.as_int());
+                const int x = static_cast<int>(first.as_int());
+                const int y = static_cast<int>(second.as_int());
                 backend_->warp(x, y);
                 variables_["cursor_x"] = Value::of_int(x);
                 variables_["cursor_y"] = Value::of_int(y);
             } else if (node.a == "move") {
-                Value dx_value;
-                Value dy_value;
-                co_await eval(node.exprs.at(0), context, dx_value);
-                co_await eval(node.exprs.at(1), context, dy_value);
-                const int dx = static_cast<int>(dx_value.as_int());
-                const int dy = static_cast<int>(dy_value.as_int());
+                const int dx = static_cast<int>(first.as_int());
+                const int dy = static_cast<int>(second.as_int());
                 backend_->move(dx, dy);
                 const auto current_x = variables_.find("cursor_x");
                 const auto current_y = variables_.find("cursor_y");
@@ -748,39 +891,21 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 backend_->warp(width_ / 2, height_ / 2);
                 variables_["cursor_x"] = Value::of_int(width_ / 2);
                 variables_["cursor_y"] = Value::of_int(height_ / 2);
-            } else if (node.a == "glide") {
-                Value x_value;
-                Value y_value;
-                co_await eval(node.exprs.at(0), context, x_value);
-                co_await eval(node.exprs.at(1), context, y_value);
-                const int x = static_cast<int>(x_value.as_int());
-                const int y = static_cast<int>(y_value.as_int());
-                co_await glide(x, y, node.duration);
             }
             break;
         }
         case StmtKind::Mouse: {
             const std::string& button = node.a;
-            std::string owner = node.c;
-            if (owner.empty()) {
-                owner = "default:" + (context.key.empty() ? std::string("script") : context.key) + ":" + button;
-            }
+            const std::string owner = mouse_owner(node, context);
             if (node.b == "hold") {
                 hold_button(owner, button);
             } else if (node.b == "free") {
                 free_button(owner);
-            } else {
-                ++tap_counter_;
-                const std::string tap_owner = "__loomwright_tap_" + std::to_string(tap_counter_);
-                hold_button(tap_owner, button);
-                ButtonRelease release{this, tap_owner};
-                co_await sleep_for(node.has_duration ? node.duration : 0.06);
             }
             break;
         }
         case StmtKind::Key: {
-            std::vector<std::string> names;
-            for (const auto& part : split_on(node.a, '+')) names.push_back(canonical_key(part));
+            const std::vector<std::string> names = key_names(node);
             if (node.b == "press") {
                 std::vector<std::string> held;
                 try {
@@ -797,18 +922,6 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                     try { free_key(*it); } catch (...) { if (!failure) failure = std::current_exception(); }
                 }
                 if (failure) std::rethrow_exception(failure);
-            } else {
-                std::vector<std::string> held;
-                try {
-                    for (const auto& name : names) { hold_key(name); held.push_back(name); }
-                } catch (...) {
-                    for (auto it = held.rbegin(); it != held.rend(); ++it) {
-                        try { free_key(*it); } catch (...) {}
-                    }
-                    throw;
-                }
-                KeyRelease release{this, names};
-                co_await sleep_for(node.has_duration ? node.duration : 0.06);
             }
             break;
         }
@@ -816,78 +929,260 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             // Consumption is collected before devices are grabbed so the first
             // key-down is swallowed; the declaration has no per-event effect.
             break;
-        case StmtKind::Type: {
-            Value text;
-            co_await eval(node.exprs.at(0), context, text);
-            backend_->type_text(text.to_string());
-            break;
-        }
-        case StmtKind::Wait:
-            {
-                Value seconds_value;
-                if (node.exprs.empty()) {
-                    seconds_value = Value::of_float(node.duration);
-                } else {
-                    co_await eval(node.exprs.at(0), context, seconds_value);
-                }
-                const double seconds = seconds_value.as_double();
-                if (!std::isfinite(seconds) || seconds < 0) throw RuntimeErrorLoomwright("wait duration must be finite and non-negative");
-                co_await sleep_for(seconds);
-            }
+        case StmtKind::Type:
+            backend_->type_text(first.to_string());
             break;
         case StmtKind::Scroll: {
-            Value x_value;
-            Value y_value;
-            co_await eval(node.exprs.at(0), context, x_value);
-            co_await eval(node.exprs.at(1), context, y_value);
-            const int x = static_cast<int>(x_value.as_int());
-            const int y = static_cast<int>(y_value.as_int());
+            const int x = static_cast<int>(first.as_int());
+            const int y = static_cast<int>(second.as_int());
             backend_->scroll(x, y);
             break;
         }
-        case StmtKind::Log: {
-            Value message;
-            co_await eval(node.exprs.at(0), context, message);
-            std::cout << message.to_string() << '\n' << std::flush;
+        case StmtKind::Log:
+            std::cout << first.to_string() << '\n' << std::flush;
             break;
-        }
-        case StmtKind::Notify: {
-            Value message;
-            co_await eval(node.exprs.at(0), context, message);
-            notify_desktop(message.to_string());
+        case StmtKind::Notify:
+            notify_desktop(first.to_string());
             break;
-        }
-        case StmtKind::ClipWrite: {
-            Value text;
-            co_await eval(node.exprs.at(0), context, text);
-            clipboard("write", text.to_string());
+        case StmtKind::ClipWrite:
+            clipboard("write", first.to_string());
             break;
-        }
         case StmtKind::ClipRead:
             assign_variable(node.a, Value::of_str(clipboard("read")));
             break;
-        case StmtKind::Launch: {
-            Value command;
-            co_await eval(node.exprs.at(0), context, command);
-            launch_program(command.to_string());
+        case StmtKind::Launch:
+            launch_program(first.to_string());
+            break;
+        case StmtKind::Set:
+            assign_variable(node.a, first);
+            break;
+        case StmtKind::Break:
+            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("break outside a loop");
+            throw BreakSignal{};
+        case StmtKind::Continue:
+            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("continue outside a loop");
+            throw ContinueSignal{};
+        case StmtKind::Return: {
+            if (function_depth_ == 0) throw RuntimeErrorLoomwright("return outside a function");
+            ReturnSignal signal;
+            if (!node.exprs.empty()) signal.value = first;
+            throw signal;
+        }
+        case StmtKind::Assert:
+            if (!first.truthy()) {
+                throw RuntimeErrorLoomwright("assertion failed at line " + std::to_string(node.line));
+            }
+            break;
+        case StmtKind::Send:
+            send_string(first.to_string());
+            break;
+        case StmtKind::Call:
+            // The result of a `call` statement is not used.
+            break;
+        case StmtKind::Wait:
+        case StmtKind::If:
+        case StmtKind::Repeat:
+        case StmtKind::While:
+        case StmtKind::For:
+            // These statements wait or run a block; they never reach the
+            // action above.
+            break;
+    }
+}
+
+/// Run a statement that cannot wait. No coroutine is involved, so the
+/// statement runs in the caller's stack frame.
+void Runtime::execute_pure(const Node& node, const EventContext& context) {
+    switch (node.stmt) {
+        case StmtKind::If: {
+            const Value condition = eval_pure(*node.exprs.at(0), context);
+            execute_nodes_pure(condition.truthy() ? node.body : node.otherwise, context);
             break;
         }
-        case StmtKind::Set: {
-            Value value;
-            co_await eval(node.exprs.at(0), context, value);
-            assign_variable(node.a, std::move(value));
+        case StmtKind::Repeat: {
+            const Value count_value = eval_pure(*node.exprs.at(0), context);
+            const long long count = count_value.as_int();
+            if (count < 0 || count > kMaxLoop) {
+                throw RuntimeErrorLoomwright("repeat count must be from 0 to " + std::to_string(kMaxLoop));
+            }
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
+            for (long long index = 0; index < count; ++index) {
+                if (scheduler_.stop_requested()) break;
+                try {
+                    execute_nodes_pure(node.body, context);
+                } catch (const BreakSignal&) {
+                    break;
+                } catch (const ContinueSignal&) {
+                    continue;
+                }
+            }
+            break;
+        }
+        case StmtKind::While: {
+            long long iterations = 0;
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
+            Value condition;
+            while (true) {
+                condition = eval_pure(*node.exprs.at(0), context);
+                if (!condition.truthy()) break;
+                if (scheduler_.stop_requested()) break;
+                ++iterations;
+                if (iterations > kMaxLoop) {
+                    throw RuntimeErrorLoomwright("while loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                                                 " iterations)");
+                }
+                try {
+                    execute_nodes_pure(node.body, context);
+                } catch (const BreakSignal&) {
+                    break;
+                } catch (const ContinueSignal&) {
+                    continue;
+                }
+            }
+            break;
+        }
+        case StmtKind::For: {
+            ++loop_depth_;
+            const auto depth = make_scope_exit([this] { --loop_depth_; });
+            if (node.b == "in") {
+                const Value items = eval_pure(*node.exprs.at(0), context);
+                if (!items.is_list()) {
+                    throw RuntimeErrorLoomwright(std::string("for ... in requires a list, got ") + type_name(items));
+                }
+                // Iterate a snapshot so the body may change the list.
+                const std::vector<Value> snapshot = items.list_items();
+                long long iterations = 0;
+                for (const Value& item : snapshot) {
+                    if (scheduler_.stop_requested()) break;
+                    if (++iterations > kMaxLoop) {
+                        throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                                                      " iterations)");
+                    }
+                    assign_variable(node.a, item);
+                    try {
+                        execute_nodes_pure(node.body, context);
+                    } catch (const BreakSignal&) {
+                        break;
+                    } catch (const ContinueSignal&) {
+                        continue;
+                    }
+                }
+            } else {
+                const Value start_value = eval_pure(*node.exprs.at(0), context);
+                const Value end_value = eval_pure(*node.exprs.at(1), context);
+                const long long start = start_value.as_int();
+                const long long end = end_value.as_int();
+                long long step = node.b == "downto" ? -1 : 1;
+                if (node.exprs.size() > 2) {
+                    const Value step_value = eval_pure(*node.exprs.at(2), context);
+                    step = step_value.as_int();
+                }
+                if (step == 0) throw RuntimeErrorLoomwright("for loop step must not be zero");
+                long long iterations = 0;
+                for (long long value = start; step > 0 ? value <= end : value >= end; value += step) {
+                    if (scheduler_.stop_requested()) break;
+                    if (++iterations > kMaxLoop) {
+                        throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
+                                                      " iterations)");
+                    }
+                    assign_variable(node.a, Value::of_int(value));
+                    try {
+                        execute_nodes_pure(node.body, context);
+                    } catch (const BreakSignal&) {
+                        break;
+                    } catch (const ContinueSignal&) {
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+        default: {
+            // A statement whose expressions cannot wait.
+            Value first;
+            Value second;
+            if (!node.exprs.empty()) first = eval_pure(*node.exprs.at(0), context);
+            if (node.exprs.size() > 1) second = eval_pure(*node.exprs.at(1), context);
+            run_action(node, first, second, context);
+            break;
+        }
+    }
+}
+
+Task Runtime::execute(const Node& node, const EventContext& context) {
+    switch (node.stmt) {
+        case StmtKind::Wait: {
+            Value seconds_value;
+            if (node.exprs.empty()) {
+                seconds_value = Value::of_float(node.duration);
+            } else {
+                LOOMWRIGHT_EVAL(node.exprs.at(0), context, seconds_value);
+            }
+            const double seconds = seconds_value.as_double();
+            if (!std::isfinite(seconds) || seconds < 0) {
+                throw RuntimeErrorLoomwright("wait duration must be finite and non-negative");
+            }
+            co_await sleep_for(seconds);
+            break;
+        }
+        case StmtKind::Mouse: {
+            if (node.b != "tap") {
+                execute_pure(node, context);
+                break;
+            }
+            const std::string& button = node.a;
+            const std::string owner = mouse_owner(node, context);
+            ++tap_counter_;
+            const std::string tap_owner = "__loomwright_tap_" + std::to_string(tap_counter_);
+            hold_button(tap_owner, button);
+            ButtonRelease release{this, tap_owner};
+            co_await sleep_for(node.has_duration ? node.duration : 0.06);
+            break;
+        }
+        case StmtKind::Key: {
+            if (node.b != "tap") {
+                execute_pure(node, context);
+                break;
+            }
+            const std::vector<std::string> names = key_names(node);
+            std::vector<std::string> held;
+            try {
+                for (const auto& name : names) { hold_key(name); held.push_back(name); }
+            } catch (...) {
+                for (auto it = held.rbegin(); it != held.rend(); ++it) {
+                    try { free_key(*it); } catch (...) {}
+                }
+                throw;
+            }
+            KeyRelease release{this, names};
+            co_await sleep_for(node.has_duration ? node.duration : 0.06);
+            break;
+        }
+        case StmtKind::Cursor: {
+            if (node.a != "glide") {
+                execute_pure(node, context);
+                break;
+            }
+            Value x_value;
+            Value y_value;
+            LOOMWRIGHT_EVAL(node.exprs.at(0), context, x_value);
+            LOOMWRIGHT_EVAL(node.exprs.at(1), context, y_value);
+            const int x = static_cast<int>(x_value.as_int());
+            const int y = static_cast<int>(y_value.as_int());
+            co_await glide(x, y, node.duration);
             break;
         }
         case StmtKind::If: {
             Value condition_value;
-            co_await eval(node.exprs.at(0), context, condition_value);
-            const bool condition = condition_value.truthy();
-            co_await execute_nodes(condition ? node.body : node.otherwise, context);
+            LOOMWRIGHT_EVAL(node.exprs.at(0), context, condition_value);
+            co_await execute_nodes(condition_value.truthy() ? node.body : node.otherwise, context);
             break;
         }
         case StmtKind::Repeat: {
             Value count_value;
-            co_await eval(node.exprs.at(0), context, count_value);
+            LOOMWRIGHT_EVAL(node.exprs.at(0), context, count_value);
             const long long count = count_value.as_int();
             if (count < 0 || count > kMaxLoop) {
                 throw RuntimeErrorLoomwright("repeat count must be from 0 to " + std::to_string(kMaxLoop));
@@ -912,13 +1207,13 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             const auto depth = make_scope_exit([this] { --loop_depth_; });
             Value condition;
             while (true) {
-                co_await eval(node.exprs.at(0), context, condition);
+                LOOMWRIGHT_EVAL(node.exprs.at(0), context, condition);
                 if (!condition.truthy()) break;
                 if (scheduler_.stop_requested()) break;
                 ++iterations;
                 if (iterations > kMaxLoop) {
                     throw RuntimeErrorLoomwright("while loop exceeded safety limit (" + std::to_string(kMaxLoop) +
-                                              " iterations)");
+                                                 " iterations)");
                 }
                 try {
                     co_await execute_nodes(node.body, context);
@@ -935,7 +1230,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             const auto depth = make_scope_exit([this] { --loop_depth_; });
             if (node.b == "in") {
                 Value items;
-                co_await eval(node.exprs.at(0), context, items);
+                LOOMWRIGHT_EVAL(node.exprs.at(0), context, items);
                 if (!items.is_list()) {
                     throw RuntimeErrorLoomwright(std::string("for ... in requires a list, got ") + type_name(items));
                 }
@@ -946,7 +1241,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                     if (scheduler_.stop_requested()) break;
                     if (++iterations > kMaxLoop) {
                         throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
-                                                  " iterations)");
+                                                      " iterations)");
                     }
                     assign_variable(node.a, item);
                     try {
@@ -960,14 +1255,14 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             } else {
                 Value start_value;
                 Value end_value;
-                co_await eval(node.exprs.at(0), context, start_value);
-                co_await eval(node.exprs.at(1), context, end_value);
+                LOOMWRIGHT_EVAL(node.exprs.at(0), context, start_value);
+                LOOMWRIGHT_EVAL(node.exprs.at(1), context, end_value);
                 const long long start = start_value.as_int();
                 const long long end = end_value.as_int();
                 long long step = node.b == "downto" ? -1 : 1;
                 if (node.exprs.size() > 2) {
                     Value step_value;
-                    co_await eval(node.exprs.at(2), context, step_value);
+                    LOOMWRIGHT_EVAL(node.exprs.at(2), context, step_value);
                     step = step_value.as_int();
                 }
                 if (step == 0) throw RuntimeErrorLoomwright("for loop step must not be zero");
@@ -976,7 +1271,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                     if (scheduler_.stop_requested()) break;
                     if (++iterations > kMaxLoop) {
                         throw RuntimeErrorLoomwright("for loop exceeded safety limit (" + std::to_string(kMaxLoop) +
-                                                  " iterations)");
+                                                      " iterations)");
                     }
                     assign_variable(node.a, Value::of_int(value));
                     try {
@@ -990,46 +1285,23 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
             }
             break;
         }
-        case StmtKind::Break:
-            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("break outside a loop");
-            throw BreakSignal{};
-        case StmtKind::Continue:
-            if (loop_depth_ == 0) throw RuntimeErrorLoomwright("continue outside a loop");
-            throw ContinueSignal{};
-        case StmtKind::Return: {
-            if (function_depth_ == 0) throw RuntimeErrorLoomwright("return outside a function");
-            ReturnSignal signal;
-            if (!node.exprs.empty()) {
-                Value value;
-                co_await eval(node.exprs.at(0), context, value);
-                signal.value = std::move(value);
-            }
-            throw signal;
-        }
-        case StmtKind::Assert: {
-            Value condition;
-            co_await eval(node.exprs.at(0), context, condition);
-            if (!condition.truthy()) {
-                throw RuntimeErrorLoomwright("assertion failed at line " + std::to_string(node.line));
-            }
-            break;
-        }
-        case StmtKind::Send: {
-            Value text;
-            co_await eval(node.exprs.at(0), context, text);
-            send_string(text.to_string());
-            break;
-        }
-        case StmtKind::Call: {
-            Value result;
-            co_await eval(node.exprs.at(0), context, result);
+        default: {
+            // The statement's expression may wait: evaluate it and run the
+            // statement's action.
+            Value first;
+            Value second;
+            if (!node.exprs.empty()) LOOMWRIGHT_EVAL(node.exprs.at(0), context, first);
+            if (node.exprs.size() > 1) LOOMWRIGHT_EVAL(node.exprs.at(1), context, second);
+            run_action(node, first, second, context);
             break;
         }
     }
 }
 
 bool Runtime::lookup_variable(const std::string& name, Value& out) const {
-    if (!function_scopes_.empty()) {
+    // Most scripts run at the top level, so there is no function scope to
+    // look in.
+    if (!function_scopes_.empty()) [[unlikely]] {
         const auto local = function_scopes_.back().find(name);
         if (local != function_scopes_.back().end()) {
             out = local->second;
@@ -1071,7 +1343,7 @@ Task Runtime::call_user_function(const Function& function, std::vector<Value> ar
 
     // The function gets its own scope: the parameters are seeded into it and
     // every assignment inside the body stays there.
-    std::map<std::string, Value> scope;
+    std::unordered_map<std::string, Value> scope;
     for (size_t index = 0; index < function.params.size(); ++index) {
         scope[function.params[index]] = std::move(args[index]);
     }
@@ -1487,32 +1759,24 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
 }
 
 Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out) {
+    if (!expr->may_wait) {
+        // Nothing in this expression can wait, so it is evaluated without a
+        // coroutine: no frame is allocated and the script keeps running in
+        // the same stack frame.
+        out = eval_pure(*expr, context);
+        co_return;
+    }
     switch (expr->kind) {
         case Expr::Kind::Literal:
-            out = expr->literal;
+        case Expr::Kind::Variable:
+            out = eval_pure(*expr, context);
             break;
-        case Expr::Kind::Variable: {
-            if (expr->name == "event_key") {
-                out = Value::of_str(context.key);
-                break;
-            }
-            if (expr->name == "event_edge") {
-                out = Value::of_str(context.edge);
-                break;
-            }
-            Value value;
-            if (!lookup_variable(expr->name, value)) {
-                throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr->name));
-            }
-            out = std::move(value);
-            break;
-        }
         case Expr::Kind::List: {
             std::vector<Value> values;
             values.reserve(expr->args.size());
             for (const auto& argument : expr->args) {
                 Value value;
-                co_await eval(argument, context, value);
+                LOOMWRIGHT_EVAL(argument, context, value);
                 values.push_back(std::move(value));
             }
             out = Value::of_list(std::move(values));
@@ -1521,8 +1785,8 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
         case Expr::Kind::Index: {
             Value base;
             Value index_value;
-            co_await eval(expr->args.at(0), context, base);
-            co_await eval(expr->args.at(1), context, index_value);
+            LOOMWRIGHT_EVAL(expr->args.at(0), context, base);
+            LOOMWRIGHT_EVAL(expr->args.at(1), context, index_value);
             if (!base.is_list()) {
                 throw RuntimeErrorLoomwright(std::string("only a list can be indexed, got ") + type_name(base));
             }
@@ -1537,128 +1801,38 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
         }
         case Expr::Kind::Unary: {
             Value value;
-            co_await eval(expr->args.at(0), context, value);
-            if (expr->name == "-") {
-                if (value.type == Value::Type::Float) {
-                    out = Value::of_float(-value.real);
-                } else {
-                    out = Value::of_int(-value.as_int());
-                }
-                break;
-            }
-            if (expr->name == "+") {
-                out = value;
-                break;
-            }
-            out = Value::of_bool(!value.truthy());
+            LOOMWRIGHT_EVAL(expr->args.at(0), context, value);
+            out = apply_unary(expr->unary_op, value);
             break;
         }
         case Expr::Kind::Binary: {
-            const std::string& op = expr->name;
-            if (op == "and" || op == "&&" || op == "or" || op == "||") {
-                const bool is_and = op == "and" || op == "&&";
+            const BinaryOp op = expr->binary_op;
+            if (op == BinaryOp::And || op == BinaryOp::Or) {
+                const bool is_and = op == BinaryOp::And;
                 Value left;
-                co_await eval(expr->args.at(0), context, left);
+                LOOMWRIGHT_EVAL(expr->args.at(0), context, left);
                 if (is_and ? !left.truthy() : left.truthy()) {
                     out = Value::of_bool(!is_and);
                     break;
                 }
                 Value right;
-                co_await eval(expr->args.at(1), context, right);
+                LOOMWRIGHT_EVAL(expr->args.at(1), context, right);
                 out = Value::of_bool(right.truthy());
                 break;
             }
-
             Value left;
             Value right;
-            co_await eval(expr->args.at(0), context, left);
-            co_await eval(expr->args.at(1), context, right);
-
-            if (op == "==") {
-                out = Value::of_bool(value_equals(left, right));
-                break;
-            }
-            if (op == "!=") {
-                out = Value::of_bool(!value_equals(left, right));
-                break;
-            }
-
-            if (op == "<" || op == "<=" || op == ">" || op == ">=") {
-                const int comparison = compare_values(left, right);
-                if (op == "<") {
-                    out = Value::of_bool(comparison < 0);
-                } else if (op == "<=") {
-                    out = Value::of_bool(comparison <= 0);
-                } else if (op == ">") {
-                    out = Value::of_bool(comparison > 0);
-                } else {
-                    out = Value::of_bool(comparison >= 0);
-                }
-                break;
-            }
-
-            if (op == "+" && left.type == Value::Type::Str && right.type == Value::Type::Str) {
-                out = Value::of_str(left.text + right.text);
-                break;
-            }
-            if (op == "+" && left.is_list() && right.is_list()) {
-                std::vector<Value> joined = left.list_items();
-                for (const Value& item : right.list_items()) joined.push_back(item);
-                out = Value::of_list(std::move(joined));
-                break;
-            }
-            if (!numeric_like(left) || !numeric_like(right)) {
-                throw RuntimeErrorLoomwright("unsupported operand type(s) for " + op + ": '" +
-                                          type_name(left) + "' and '" + type_name(right) + "'");
-            }
-
-            const bool want_float = left.type == Value::Type::Float || right.type == Value::Type::Float;
-            if (op == "/") {
-                const double divisor = right.as_double();
-                if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
-                out = Value::of_float(left.as_double() / divisor);
-                break;
-            }
-            if (op == "%") {
-                if (!want_float) {
-                    const long long divisor = right.as_int();
-                    if (divisor == 0) throw RuntimeErrorLoomwright("Division by zero");
-                    const long long value = left.as_int();
-                    long long result = value % divisor;
-                    if (result != 0 && ((result < 0) != (divisor < 0))) result += divisor;
-                    out = Value::of_int(result);
-                    break;
-                }
-                const double divisor = right.as_double();
-                if (divisor == 0.0) throw RuntimeErrorLoomwright("Division by zero");
-                double result = std::fmod(left.as_double(), divisor);
-                if (result != 0.0 && ((result < 0.0) != (divisor < 0.0))) result += divisor;
-                out = Value::of_float(result);
-                break;
-            }
-            if (op == "+") {
-                out = want_float ? Value::of_float(left.as_double() + right.as_double())
-                                 : Value::of_int(left.as_int() + right.as_int());
-                break;
-            }
-            if (op == "-") {
-                out = want_float ? Value::of_float(left.as_double() - right.as_double())
-                                 : Value::of_int(left.as_int() - right.as_int());
-                break;
-            }
-            if (op == "*") {
-                out = want_float ? Value::of_float(left.as_double() * right.as_double())
-                                 : Value::of_int(left.as_int() * right.as_int());
-                break;
-            }
-            throw RuntimeErrorLoomwright("unsupported operator " + quote_string(op));
+            LOOMWRIGHT_EVAL(expr->args.at(0), context, left);
+            LOOMWRIGHT_EVAL(expr->args.at(1), context, right);
+            out = apply_binary(op, left, right);
+            break;
         }
         case Expr::Kind::Call: {
             std::vector<Value> args;
             args.reserve(expr->args.size());
             for (const auto& argument : expr->args) {
                 Value value;
-                co_await eval(argument, context, value);
+                LOOMWRIGHT_EVAL(argument, context, value);
                 args.push_back(std::move(value));
             }
             const auto user_function = functions_.find(expr->name);
@@ -1672,6 +1846,71 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             break;
         }
     }
+}
+
+Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
+    switch (expr.kind) {
+        case Expr::Kind::Literal:
+            return expr.literal;
+        case Expr::Kind::Variable: {
+            if (expr.name == "event_key") return Value::of_str(context.key);
+            if (expr.name == "event_edge") return Value::of_str(context.edge);
+            Value value;
+            if (!lookup_variable(expr.name, value)) {
+                throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr.name));
+            }
+            return value;
+        }
+        case Expr::Kind::List: {
+            std::vector<Value> values;
+            values.reserve(expr.args.size());
+            for (const auto& argument : expr.args) {
+                values.push_back(eval_pure(*argument, context));
+            }
+            return Value::of_list(std::move(values));
+        }
+        case Expr::Kind::Index: {
+            const Value base = eval_pure(*expr.args.at(0), context);
+            const Value index_value = eval_pure(*expr.args.at(1), context);
+            if (!base.is_list()) {
+                throw RuntimeErrorLoomwright(std::string("only a list can be indexed, got ") + type_name(base));
+            }
+            const std::vector<Value>& items = base.list_items();
+            long long index = index_value.as_int();
+            if (index < 0) index += static_cast<long long>(items.size());
+            if (index < 0 || index >= static_cast<long long>(items.size())) {
+                throw RuntimeErrorLoomwright("list index out of range");
+            }
+            return items[static_cast<size_t>(index)];
+        }
+        case Expr::Kind::Unary:
+            return apply_unary(expr.unary_op, eval_pure(*expr.args.at(0), context));
+        case Expr::Kind::Binary: {
+            const BinaryOp op = expr.binary_op;
+            if (op == BinaryOp::And || op == BinaryOp::Or) {
+                const bool is_and = op == BinaryOp::And;
+                const Value left = eval_pure(*expr.args.at(0), context);
+                if (is_and ? !left.truthy() : left.truthy()) return Value::of_bool(!is_and);
+                return Value::of_bool(eval_pure(*expr.args.at(1), context).truthy());
+            }
+            return apply_binary(op, eval_pure(*expr.args.at(0), context), eval_pure(*expr.args.at(1), context));
+        }
+        case Expr::Kind::Call: {
+            // A built-in function never waits, so it is evaluated here. A
+            // call to a user-defined function may wait, and the parser marks
+            // such an expression so it never reaches this path.
+            if (functions_.find(expr.name) != functions_.end()) {
+                throw RuntimeErrorLoomwright("internal error: a function call cannot be evaluated without waiting");
+            }
+            std::vector<Value> args;
+            args.reserve(expr.args.size());
+            for (const auto& argument : expr.args) {
+                args.push_back(eval_pure(*argument, context));
+            }
+            return call_function(expr.name, std::move(args), context);
+        }
+    }
+    return Value::none();
 }
 
 void Runtime::hold_button(const std::string& owner, const std::string& button) {

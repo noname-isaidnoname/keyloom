@@ -12,12 +12,27 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <new>
 #include <string>
 
 #include "backends.hpp"
 #include "parser.hpp"
 #include "runtime.hpp"
 #include "value.hpp"
+
+namespace {
+std::size_t g_allocations = 0;
+}  // namespace
+
+void* operator new(std::size_t size) {
+    ++g_allocations;
+    void* memory = std::malloc(size == 0 ? 1 : size);
+    if (memory == nullptr) throw std::bad_alloc();
+    return memory;
+}
+
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 
 namespace {
 
@@ -80,11 +95,13 @@ int main(int argc, char** argv) {
     Runtime runtime(script, Runtime::Options{});
     runtime.set_backend(std::make_unique<NullBackend>());
     const auto run_start = std::chrono::steady_clock::now();
+    const std::size_t allocations_before = g_allocations;
     for (int i = 0; i < repetitions; ++i) {
         runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
         runtime.scheduler().run();
     }
     const double run_seconds = seconds_since(run_start);
+    const std::size_t allocations = g_allocations - allocations_before;
     const Value total = runtime.variables().at("total");
 
     std::printf("compiler      : %s\n", LOOMWRIGHT_BENCH_COMPILER);
@@ -95,5 +112,7 @@ int main(int argc, char** argv) {
                 run_seconds * 1000.0 / repetitions);
     std::printf("checksum      : %s\n", total.to_string().c_str());
     std::printf("events parsed : %zu\n", statements);
+    std::printf("allocations   : %zu (%.1f per run)\n", allocations,
+                static_cast<double>(allocations) / repetitions);
     return 0;
 }

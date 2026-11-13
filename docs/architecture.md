@@ -32,7 +32,7 @@ automation process before its output cleanup.
 | `src/input.cpp`, `src/input.hpp` | `InputDevice`: open/list `/dev/input/event*`, evdev caps, grab/ungrab, passthrough replay |
 | `src/subprocess.cpp`, `src/subprocess.hpp` | `run_command`/`spawn_detached`, `which`, `split_shell_words`, `ydotool_socket_path` |
 | `src/keys.cpp`, `src/keys.inc` | key-name tables, `validate_key_name`, `canonical_key_name`, `mouse_buttons` |
-| `src/value.cpp`, `src/value.hpp` | `Value` (int/double/bool/string), Python-style `repr`/`str`, truthiness |
+| `src/value.cpp`, `src/value.hpp` | `Value` (int/double/bool/string), `repr`/`str` formatting, truthiness |
 | `src/builtins.cpp`, `src/builtins.hpp` | the builtin-function table and arity lookup |
 | `src/mousepos.cpp`, `src/mousepos.hpp` | screenshot-overlay coordinate picker (`--get-mouse-pos`) |
 | `src/picker_xcb.cpp`, `src/picker_image.cpp` | the picker's XCB transport and screenshot pixel handling |
@@ -190,7 +190,7 @@ coordinates. See [cli.md](cli.md#mouse-position-picker).
 
 | Type | File | Purpose |
 | --- | --- | --- |
-| `Value` | `src/value.hpp` | int/double/bool/string with Python-style `repr`/`str` and truthiness |
+| `Value` | `src/value.hpp` | int/double/bool/string with `repr`/`str` formatting and truthiness |
 | `Expr` | `src/ast.hpp` | expression tree node |
 | `Node` | `src/ast.hpp` | one statement or event block |
 | `Script` | `src/ast.hpp` | options, events, remaps, panels, functions |

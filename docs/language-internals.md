@@ -62,15 +62,15 @@ handler is the primary key.
 ## AST and data model
 
 - `Script` — name, path, options, events, remaps, panels, functions.
-- `Node` — one statement or event block. Flat fields mirror the original
-  tuple-based nodes: event fields (`event_kind`, `event_key`, `chord_parts`,
+- `Node` — one statement or event block. Flat fields keep the node
+  tuple-style: event fields (`event_kind`, `event_key`, `chord_parts`,
   `edge`, `interval`) and statement fields (`a`, `b`, `c`, `exprs`,
   `has_duration`, `duration`, `body`, `otherwise`, `line`).
 - `Expr` — expression tree; `ExprPtr` is a `shared_ptr`.
 - `Function` — name, params, body, line.
 - `GuiPanel` / `GuiWidget` — persistent panel declarations.
 - `Remap` — source and target key/chord.
-- `Value` — int/double/bool/string with Python-style `repr`/`str` and
+- `Value` — int/double/bool/string with `repr`/`str` formatting and
   truthiness.
 
 ## Statement dispatch

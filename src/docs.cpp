@@ -13,7 +13,8 @@ const char* const kGuide = R"DOC(LOOMWRIGHT LANGUAGE GUIDE
 ======================
 
 Loomwright is a Linux desktop automation language. A .loom file is parsed and
-checked before it is run. It is deliberately not Python or AutoHotkey syntax.
+checked before it is run. It is deliberately its own small syntax, not a
+general-purpose language and not AutoHotkey.
 
 A minimal file
 --------------

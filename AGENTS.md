@@ -6,28 +6,6 @@ Loomwright is a Linux-first desktop automation language. A `.loom` file is parse
 
 User docs: `README.md`. Language reference: `loomwright --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 
-
-### Gathering context
-
-You can use the `scripts/gather_context.py` script to search through AGENTS.md, the docs/ directory, and the codebase (C++ sources and extensionless files; gitignored files are skipped):
-
-```bash
-python3 scripts/gather_context.py "<query>"
-```
-
-
-Options:
-- `--context N`: Number of surrounding lines to show per match (default: 2)
-- `--include PATTERN`: File pattern to match when searching docs/ (default: *.md); codebase extensions are not affected
-- `--case-sensitive`: Perform case-sensitive search
-- `--json`: Output results in JSON format (use this for special cases where you need to parse the results programmatically)
-- `--files-only` / `-l`: Print only matching file paths, no context lines (biggest token saver)
-- `--max-results N`: Maximum number of matching files to report (default: unlimited)
-- `--max-file-size N`: Skip files larger than N bytes (0 = unlimited; default: 1 MiB)
-- `--file PATTERN [PATTERN ...]`: Search only the given file(s)/glob pattern(s), relative to the project root (absolute and `~`-prefixed paths also work). Overrides the default AGENTS.md/docs/codebase search. Can be specified multiple times
-- `--workers N`: Maximum number of worker threads for parallel codebase search (default: auto)
-
-
 # Documentation map
 Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md) and read the relevant sections **before** proceeding with the user's tasks (otherwise you'd probably miss some important context).
 
@@ -35,6 +13,7 @@ Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md) and r
 | --- | --- |
 | [`docs/architecture.md`](docs/architecture.md) | Repo layout, compilation units, lexer→parser→checker→runtime pipeline, scheduler/task model, input/output/GUI subsystems |
 | [`docs/build-and-install.md`](docs/build-and-install.md) | Prerequisites, build presets, Makefile targets, CMake options, install layout, Arch packaging, runtime permissions |
+| [`docs/gather-context.md`](docs/gather-context.md) | Using `scripts/gather_context.py` to search AGENTS.md, the docs/, and the codebase |
 | [`docs/testing.md`](docs/testing.md) | Test-suite layout, running the suite, unit and integration tests, sanitizers, verification commands |
 | [`docs/releases.md`](docs/releases.md) | Release packaging, GitHub Actions publishing, and Podman CI testing |
 | [`docs/benchmark.md`](docs/benchmark.md) | Measured build/test performance, the optimizations behind it, how to reproduce the numbers |

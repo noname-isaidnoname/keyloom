@@ -53,6 +53,7 @@ Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md) and r
 - Versioning: bump `project(loomwright VERSION ...)` in `CMakeLists.txt` (the source of truth) and keep `packaging/arch/PKGBUILD` in sync. See [`docs/contributing.md#versioning`](docs/contributing.md#versioning).
 - Commit once verified: run `make` (build plus the full test suite) and, when the language changes, `loomwright --check` on every script in `examples/`. See [`docs/contributing.md#committing`](docs/contributing.md#committing). **Read first if the task also involves committing changes at the end.**
 - Do not assume the session type, compositor, distro or package manager anywhere — detect at runtime and keep docs generic. See [`docs/build-and-install.md#environment-assumptions`](docs/build-and-install.md#environment-assumptions).
+- Use `rg` (if available) instead of `grep` for faster searching.
 
 
 ## Gotchas

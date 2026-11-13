@@ -8,7 +8,7 @@ This repo is the C++ port. The original prototype implementation is deprecated a
 
 User docs: `README.md`. Language reference: `loomwright --docs` (`src/docs.cpp`). Examples: `examples/*.loom`.
 
-Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md).
+Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md) and read the relevant sections before the user's tasks.
 
 | Document | What it covers |
 | --- | --- |

@@ -13,7 +13,7 @@
 pkgname=loomwright
 # Keep this in sync with project(loomwright VERSION ...) in ../../CMakeLists.txt.
 pkgver=0.5.7
-pkgrel=1
+pkgrel=2
 pkgdesc='Linux-first desktop automation language and runtime'
 arch=(x86_64 aarch64)
 license=(MIT)
@@ -62,11 +62,15 @@ sha256sums=()
 
 # The project was renamed from `keyloom` to `loomwright`. A user who installed
 # the old package keeps its files, its command names and its desktop entry.
-# `replaces` lets pacman remove the old package during the upgrade, and
+# `replaces` only acts through the sync database, so it does not remove the
+# old package for a local `pacman -U` install. `conflicts` makes pacman offer
+# to remove `keyloom` first, which is what clears the file collisions
+# (/etc/xdg/mimeapps.list, /usr/bin/keyloom, /usr/bin/keyloom-terminal).
 # `provides` keeps the old name resolvable, so `pacman -S keyloom` still
 # finds a package.
 replaces=('keyloom')
 provides=('keyloom')
+conflicts=('keyloom')
 
 _loomwright_source_dir="${LOOMWRIGHT_SOURCE_DIR:-${startdir}/../..}"
 

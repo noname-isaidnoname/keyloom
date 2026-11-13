@@ -12,6 +12,10 @@
 - Build warning-clean on
   `-Wall -Wextra -Wpedantic -Wshadow -Wnon-virtual-dtor -Woverloaded-virtual`;
   keep it that way.
+- Clang is the reference compiler; GCC is supported as well. Keep the code
+  warning-clean on both, and use `cmake --preset release-clang` and
+  `cmake --preset release-gcc` when a change might behave differently on one
+  of them.
 - Use `rg` for searching. Keep new code covered by a focused test in `tests/`.
 
 ## Docs sync

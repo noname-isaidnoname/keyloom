@@ -50,16 +50,18 @@ The AppImage carries the icon and desktop entry inside the image.
 
 You need a C++20 compiler, CMake ≥ 3.25, Ninja, pkg-config, and X11/XCB/libpng development headers. GTK3 and Wayland development headers enable native Wayland panels; without them, panels use X11/Xwayland.
 
+Clang is the reference compiler: the release artifacts are built with Clang 16 or newer, and it produces the fastest runtime build (see [docs/benchmark.md](docs/benchmark.md)). GCC 13 or newer is supported as well, and the CI workflow builds and tests with both.
+
 Debian/Ubuntu:
 
 ```bash
-sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
+sudo apt install cmake ninja-build pkg-config clang libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
 ```
 
 Arch:
 
 ```bash
-sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland
+sudo pacman -S cmake ninja pkgconf clang libx11 libxcb libpng gtk3 wayland
 ```
 
 Build and install:

@@ -11,6 +11,42 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
+# The reference compiler is Clang: on the runtime benchmark in
+# tests/bench_runtime.cpp it runs the workload about 15% faster than GCC and
+# produces a smaller binary (see docs/benchmark.md). GCC stays supported, and
+# the CI workflow builds with both.
+set(LOOMWRIGHT_REFERENCE_COMPILER "Clang")
+option(LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER
+    "Fail the configure step unless the reference compiler (${LOOMWRIGHT_REFERENCE_COMPILER}) is used" OFF)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+        message(FATAL_ERROR
+            "Clang 16 or newer is required (found ${CMAKE_CXX_COMPILER_VERSION}). "
+            "C++20 support in older releases is incomplete.")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+        message(FATAL_ERROR
+            "GCC 13 or newer is required (found ${CMAKE_CXX_COMPILER_VERSION}). "
+            "C++20 support in older releases is incomplete.")
+    endif()
+else()
+    message(FATAL_ERROR
+        "Unsupported C++ compiler '${CMAKE_CXX_COMPILER_ID}'. "
+        "Use Clang ${LOOMWRIGHT_REFERENCE_COMPILER} or GCC.")
+endif()
+
+if(LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER AND
+   NOT CMAKE_CXX_COMPILER_ID MATCHES "${LOOMWRIGHT_REFERENCE_COMPILER}")
+    message(FATAL_ERROR
+        "LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER is ON but the compiler is "
+        "'${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}'. "
+        "Configure with -DCMAKE_CXX_COMPILER=${LOOMWRIGHT_REFERENCE_COMPILER}++.")
+endif()
+
+message(STATUS "loomwright: C++ compiler ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
+
 option(LOOMWRIGHT_USE_MOLD "Link with mold when the linker is installed" ON)
 option(LOOMWRIGHT_SANITIZE "Build with the address and undefined behaviour sanitizers" OFF)
 option(LOOMWRIGHT_HARDEN "Enable the usual release hardening flags" ON)
@@ -128,6 +164,14 @@ if(BUILD_TESTING)
     target_link_libraries(loomwright_tests PRIVATE loomwright_core loomwright_test_options)
     target_compile_definitions(loomwright_tests PRIVATE LOOMWRIGHT_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
     add_test(NAME loomwright_tests COMMAND loomwright_tests)
+
+    # A synthetic benchmark for the front end and the runtime. It is not a
+    # test: it prints timings so a change to the code generation can be
+    # compared against the previous build.
+    add_executable(loomwright_bench tests/bench_runtime.cpp)
+    target_link_libraries(loomwright_bench PRIVATE loomwright_core)
+    target_compile_definitions(loomwright_bench PRIVATE
+        LOOMWRIGHT_BENCH_COMPILER="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 
     add_executable(evdev_handoff tests/evdev_handoff.cpp)
     target_link_libraries(evdev_handoff PRIVATE loomwright_core loomwright_test_options)

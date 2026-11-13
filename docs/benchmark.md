@@ -4,6 +4,31 @@ Measured build and test performance for Loomwright 0.4.0 on the maintainer's
 machine (CachyOS, KDE Plasma, 4 jobs). Numbers are a snapshot, not a promise:
 always measure before and after a change and keep the evidence with the commit.
 
+## Compiler comparison
+
+The runtime benchmark (`tests/bench_runtime.cpp`, built as `loomwright_bench`)
+parses a script and runs a loop of integer arithmetic and string concatenation.
+Measured on CachyOS with GCC 16.2.1 and Clang 23.1.4, both at `-O3`, 20
+repetitions of 100 000 inner iterations:
+
+| Compiler | Run time per repetition | Binary size |
+| --- | --- | --- |
+| GCC 16.2.1 | 176–187 ms | 1 464 760 bytes |
+| Clang 23.1.4 | 142–150 ms | 1 255 200 bytes |
+
+Clang is about 15 % faster on this workload and produces the smaller binary, so
+it is the reference compiler for the release artifacts. GCC stays supported and
+is built by the CI workflow.
+
+Reproduce it with:
+
+```bash
+cmake --preset release-clang && cmake --build build/release-clang -j4
+./build/release-clang/loomwright_bench 20
+cmake --preset release-gcc && cmake --build build/release-gcc -j4
+./build/release-gcc/loomwright_bench 20
+```
+
 ## Results at 0.4.0
 
 | Measurement | Before | After |

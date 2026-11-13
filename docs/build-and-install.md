@@ -5,7 +5,7 @@ For release downloads, packaging scripts, and container-based verification see
 
 ## Prerequisites
 
-- C++20 toolchain (GCC or Clang)
+- C++20 toolchain: Clang 16 or newer (the reference compiler) or GCC 13 or newer
 - CMake ≥ 3.25
 - Ninja
 - pkg-config
@@ -15,13 +15,13 @@ For release downloads, packaging scripts, and container-based verification see
 Debian/Ubuntu:
 
 ```bash
-sudo apt install cmake ninja-build pkg-config libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
+sudo apt install cmake ninja-build pkg-config clang libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev
 ```
 
 Arch:
 
 ```bash
-sudo pacman -S cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland
+sudo pacman -S cmake ninja pkgconf clang libx11 libxcb libpng gtk3 wayland
 ```
 
 Runtime (not needed to build): `ydotool`/`ydotoold`, or a writable
@@ -29,11 +29,13 @@ Runtime (not needed to build): `ydotool`/`ydotoold`, or a writable
 
 ## Build presets
 
-`CMakePresets.json` defines three configure/build/test presets:
+`CMakePresets.json` defines the configure/build/test presets:
 
 | Preset | Build type | Tests | Notes |
 | --- | --- | --- | --- |
-| `release` | Release | yes | Ninja, ccache, mold when installed |
+| `release` | Release | yes | Ninja, ccache, mold when installed, the compiler CMake picks |
+| `release-clang` | Release | yes | Clang, the reference compiler |
+| `release-gcc` | Release | yes | GCC |
 | `debug` | Debug | yes | Ninja, ccache, mold when installed |
 | `sanitize` | Debug | yes | ASan + UBSan, hardening disabled |
 
@@ -41,6 +43,10 @@ Runtime (not needed to build): `ydotool`/`ydotoold`, or a writable
 cmake --preset release
 cmake --build build/release -j$(nproc)
 ctest --preset release
+
+cmake --preset release-clang
+cmake --build build/release-clang -j$(nproc)
+ctest --preset release-clang
 
 cmake --preset sanitize
 cmake --build build/sanitize -j$(nproc)
@@ -71,6 +77,7 @@ Variables: `JOBS=8`, `PREFIX=/usr/local`, `BUILD=build/release`.
 | --- | --- | --- |
 | `BUILD_TESTING` | ON (presets) | Build the test harness, probes and integration tests |
 | `LOOMWRIGHT_USE_MOLD` | ON | Link with `mold` when it is installed |
+| `LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER` | OFF | Fail the configure step unless Clang is the C++ compiler |
 | `LOOMWRIGHT_SANITIZE` | OFF | Build with `-fsanitize=address,undefined` |
 | `LOOMWRIGHT_HARDEN` | ON | `-fstack-protector-strong`, `-D_FORTIFY_SOURCE=3`, `-fPIE` |
 | `LOOMWRIGHT_WAYLAND` | ON | Build native Wayland panels if GTK3 and wayland-client are available |
@@ -79,6 +86,24 @@ Variables: `JOBS=8`, `PREFIX=/usr/local`, `BUILD=build/release`.
 `LOOMWRIGHT_SANITIZE` and `LOOMWRIGHT_HARDEN` are mutually exclusive in practice: the
 sanitize preset turns hardening off because the sanitizers replace the
 allocator and libc's own checks add nothing.
+
+## Compiler
+
+Clang is the reference compiler: the release artifacts are built with it, and
+it produces the fastest runtime build of the two supported toolchains
+([benchmark.md](benchmark.md)). GCC 13 or newer stays supported and is built by
+the CI workflow as well. The configure step rejects a compiler that is too old
+for the C++20 features the runtime uses, and
+`LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER=ON` makes it reject everything but Clang.
+
+To build with a specific compiler, use the matching preset or set the usual
+environment variables:
+
+```bash
+cmake --preset release-clang     # build/release-clang
+cmake --preset release-gcc       # build/release-gcc
+CC=clang CXX=clang++ cmake --preset release
+```
 
 ccache is used automatically when `CMAKE_CXX_COMPILER_LAUNCHER` is not set
 explicitly and `ccache` is on `PATH`.

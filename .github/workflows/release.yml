@@ -22,6 +22,10 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+    env:
+      # The release artifacts are built with the reference compiler.
+      CC: clang
+      CXX: clang++
     steps:
       - uses: actions/checkout@v4
       - name: Read project version
@@ -33,12 +37,12 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build ccache libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth xdotool imagemagick weston desktop-file-utils
+          sudo apt-get install -y ninja-build ccache clang libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth xdotool imagemagick weston desktop-file-utils
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ccache
-          key: ${{ runner.os }}-24.04-ccache-${{ github.sha }}
-          restore-keys: ${{ runner.os }}-24.04-ccache-
+          key: ${{ runner.os }}-24.04-clang-ccache-${{ github.sha }}
+          restore-keys: ${{ runner.os }}-24.04-clang-ccache-
       - name: Build and test
         run: make JOBS=2
       - name: Download appimagetool
@@ -90,19 +94,19 @@ jobs:
     steps:
       - name: Install Arch build dependencies
         run: |
-          pacman -Syu --noconfirm --needed git cmake ninja pkgconf libx11 libxcb libpng gtk3 wayland ccache desktop-file-utils shared-mime-info xdg-utils hicolor-icon-theme
+          pacman -Syu --noconfirm --needed git cmake ninja pkgconf clang libx11 libxcb libpng gtk3 wayland ccache desktop-file-utils shared-mime-info xdg-utils hicolor-icon-theme
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
         with:
           path: /tmp/loomwright-ccache
-          key: arch-x86_64-ccache-${{ github.sha }}
-          restore-keys: arch-x86_64-ccache-
+          key: arch-x86_64-clang-ccache-${{ github.sha }}
+          restore-keys: arch-x86_64-clang-ccache-
       - name: Build Arch package as an unprivileged user
         run: |
           useradd --create-home loomwright-builder
           mkdir -p /tmp/loomwright-ccache /tmp/loomwright-artifacts
           chown -R loomwright-builder:loomwright-builder /tmp/loomwright-ccache /tmp/loomwright-artifacts
-          runuser -u loomwright-builder -- env CCACHE_DIR=/tmp/loomwright-ccache CMAKE_BUILD_PARALLEL_LEVEL=2 LOOMWRIGHT_PACKAGE_OUT=/tmp/loomwright-artifacts "$GITHUB_WORKSPACE/scripts/package-arch.sh"
+          runuser -u loomwright-builder -- env CC=clang CXX=clang++ CCACHE_DIR=/tmp/loomwright-ccache CMAKE_BUILD_PARALLEL_LEVEL=2 LOOMWRIGHT_PACKAGE_OUT=/tmp/loomwright-artifacts "$GITHUB_WORKSPACE/scripts/package-arch.sh"
       - name: Install and smoke test Arch package
         run: |
           shopt -s nullglob

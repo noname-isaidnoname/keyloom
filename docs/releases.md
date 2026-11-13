@@ -37,6 +37,10 @@ Arch package additionally registers the system-wide default handler in
 `/etc/xdg/mimeapps.list`; DEB and RPM rely on the desktop's own association
 handling. The AppImage carries the icon and desktop entry inside the image.
 
+The release artifacts are built with Clang, the reference compiler (see
+[benchmark.md](benchmark.md)); the CI workflow builds and tests with Clang and
+with GCC.
+
 ## Publishing
 
 The release workflow runs nightly on the default branch and by manual dispatch.

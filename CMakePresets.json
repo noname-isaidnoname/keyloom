@@ -15,6 +15,35 @@
             }
         },
         {
+            "name": "release-clang",
+            "displayName": "Release with Clang (reference compiler)",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/release-clang",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "clang",
+                "CMAKE_CXX_COMPILER": "clang++",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                "LOOMWRIGHT_USE_MOLD": "ON",
+                "LOOMWRIGHT_REQUIRE_REFERENCE_COMPILER": "ON",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "release-gcc",
+            "displayName": "Release with GCC",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/release-gcc",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_C_COMPILER": "gcc",
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_CXX_COMPILER_LAUNCHER": "ccache",
+                "LOOMWRIGHT_USE_MOLD": "ON",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
             "name": "debug",
             "displayName": "Debug (Ninja + mold + ccache)",
             "generator": "Ninja",
@@ -43,6 +72,8 @@
     ],
     "buildPresets": [
         { "name": "release", "configurePreset": "release" },
+        { "name": "release-clang", "configurePreset": "release-clang" },
+        { "name": "release-gcc", "configurePreset": "release-gcc" },
         { "name": "debug", "configurePreset": "debug" },
         { "name": "sanitize", "configurePreset": "sanitize" }
     ],
@@ -50,6 +81,22 @@
         {
             "name": "release",
             "configurePreset": "release",
+            "output": { "outputOnFailure": true },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "release-clang",
+            "configurePreset": "release-clang",
+            "output": { "outputOnFailure": true },
+            "execution": {
+                "jobs": 4
+            }
+        },
+        {
+            "name": "release-gcc",
+            "configurePreset": "release-gcc",
             "output": { "outputOnFailure": true },
             "execution": {
                 "jobs": 4

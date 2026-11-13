@@ -30,12 +30,12 @@ jobs:
       CC: ${{ matrix.cc }}
       CXX: ${{ matrix.cxx }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache clang lld libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev xvfb xauth xdotool imagemagick weston
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-24.04-${{ matrix.compiler }}-ccache-${{ github.sha }}

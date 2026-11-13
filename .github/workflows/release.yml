@@ -27,7 +27,7 @@ jobs:
       CC: clang
       CXX: clang++
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Read project version
         id: version
         run: |
@@ -38,7 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build ccache clang lld libx11-dev libxcb1-dev libpng-dev libgtk-3-dev libwayland-dev rpm file cpio squashfs-tools librsvg2-bin xvfb xauth xdotool imagemagick weston desktop-file-utils
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: ${{ runner.os }}-24.04-clang-ccache-${{ github.sha }}
@@ -77,7 +77,7 @@ jobs:
           done
           desktop-file-validate packaging/common/loomwright.desktop
           desktop-file-validate packaging/appimage/loomwright.desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-files
           path: build/artifacts/*
@@ -95,8 +95,8 @@ jobs:
       - name: Install Arch build dependencies
         run: |
           pacman -Syu --noconfirm --needed git cmake ninja pkgconf clang libx11 libxcb libpng gtk3 wayland ccache desktop-file-utils shared-mime-info xdg-utils hicolor-icon-theme
-      - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: actions/checkout@v7
+      - uses: actions/cache@v6
         with:
           path: /tmp/loomwright-ccache
           key: arch-x86_64-clang-ccache-${{ github.sha }}
@@ -123,7 +123,7 @@ jobs:
           test -x /usr/bin/loomwright-terminal
           desktop-file-validate /usr/share/applications/loomwright.desktop
           xdg-mime query default application/x-loomwright | grep -qx loomwright.desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: arch-package
           path: /tmp/loomwright-artifacts/*.pkg.tar.zst
@@ -137,11 +137,11 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: release-files
           path: artifacts
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: arch-package
           path: artifacts

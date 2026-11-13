@@ -3,6 +3,14 @@
 # injection (no kernel fault injection/sudo). Complements deterministic
 # UInputSetupStep seams by running UInputDevice setup against a real fd.
 set -euo pipefail
+# The sanitizer runtime insists on being the first library in the process. The
+# fault injection below preloads the shim, so the check is disabled; the
+# sanitizer itself stays on.
+if [[ -n ${ASAN_OPTIONS:-} ]]; then
+    export ASAN_OPTIONS="$ASAN_OPTIONS:verify_asan_link_order=0"
+else
+    export ASAN_OPTIONS="verify_asan_link_order=0"
+fi
 PROBE=${LOOMWRIGHT_UINPUT_FAULT_PROBE:-}
 SHIM=${LOOMWRIGHT_UINPUT_IOCTL_FAULT_SHIM:-}
 [[ -x $PROBE && -f $SHIM ]] || exit 77

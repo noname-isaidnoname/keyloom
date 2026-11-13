@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Exercise the actual interpreter, X11 window, button callbacks, timer and dry-run backend.
 set -euo pipefail
+# The sanitizer runtime insists on being the first library in the process. This
+# test starts Loomwright through stdbuf, which preloads its own library, so
+# the check is disabled; the sanitizer itself stays on.
+if [[ -n ${ASAN_OPTIONS:-} ]]; then
+    export ASAN_OPTIONS="$ASAN_OPTIONS:verify_asan_link_order=0"
+else
+    export ASAN_OPTIONS="verify_asan_link_order=0"
+fi
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BIN=${LOOMWRIGHT_BIN:-$ROOT/build/release/loomwright}
 EVENT=${LOOMWRIGHT_PICKER_EVENT:-$ROOT/build/release/picker_event}

@@ -19,6 +19,8 @@
 
 namespace loomwright {
 
+using VariableMap = std::unordered_map<std::string, Value>;
+
 /// Resolve aliases and upper-case a key name (`ctrl` -> `LEFTCTRL`).
 std::string canonical_key(const std::string& name);
 
@@ -62,7 +64,7 @@ public:
     void set_consumed_keys(std::set<std::string> keys) { consumed_keys_ = std::move(keys); }
     const std::string& panic_key() const { return panic_key_; }
     std::set<std::string>& pressed_keys() { return pressed_keys_; }
-    std::unordered_map<std::string, Value>& variables() { return variables_; }
+    VariableMap& variables() { return variables_; }
     bool interrupted() const { return interrupted_; }
     const std::string& runtime_error() const { return runtime_error_; }
     int width() const { return width_; }
@@ -141,7 +143,7 @@ private:
     /// Evaluate an expression that cannot wait. Such an expression needs no
     /// coroutine, so it runs without allocating a coroutine frame.
     Value eval_pure(const Expr& expr, const EventContext& context);
-    Value call_function(const std::string& name, std::vector<Value> args, const EventContext& context);
+    Value call_builtin(Builtin id, const std::string& name, std::vector<Value> args, const EventContext& context);
     Task call_user_function(const Function& function, std::vector<Value> args, const EventContext& context,
                             Value& out);
     bool chord_modifiers_held(const Node& event) const;
@@ -166,7 +168,7 @@ private:
     std::unique_ptr<OutputBackend> backend_;
     int width_ = 1920;
     int height_ = 1080;
-    std::unordered_map<std::string, Value> variables_;
+    VariableMap variables_;
     std::set<std::string> pressed_keys_;
     std::map<std::string, std::set<std::string>> device_down_;
     std::map<std::string, std::set<int>> device_raw_down_;
@@ -186,7 +188,7 @@ private:
     std::unordered_map<std::string, const Function*> functions_;
     /// One scope per running function call. A function reads the script's
     /// variables but keeps its own assignments to itself.
-    std::vector<std::unordered_map<std::string, Value>> function_scopes_;
+    std::vector<VariableMap> function_scopes_;
     int loop_depth_ = 0;
     int function_depth_ = 0;
     std::vector<std::unique_ptr<GuiHost>> gui_hosts_;

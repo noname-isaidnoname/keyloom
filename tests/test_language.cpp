@@ -709,7 +709,7 @@ TEST_CASE(documented_functions_match_the_builtin_table) {
     for (const auto& function : builtin_functions()) {
         bool found = false;
         for (const auto& entry : all_entries) {
-            if (entry == function.name || entry.rfind(function.name + "(", 0) == 0) {
+            if (entry == function.name || entry.starts_with(std::string(function.name) + "(")) {
                 found = true;
                 break;
             }

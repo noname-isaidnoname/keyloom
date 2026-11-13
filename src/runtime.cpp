@@ -214,7 +214,7 @@ Value apply_binary(BinaryOp op, const Value& left, const Value& right) {
         default:
             break;
     }
-    if (!numeric_like(left) || !numeric_like(right)) {
+    if (!numeric_like(left) || !numeric_like(right)) [[unlikely]] {
         throw RuntimeErrorLoomwright("unsupported operand type(s) for " + std::string(binary_op_text(op)) +
                                      ": '" + type_name(left) + "' and '" + type_name(right) + "'");
     }
@@ -316,8 +316,8 @@ std::string hotkey_id_for_event(const Node& event) {
 std::string hotkey_id_for_name(const std::string& raw_name) {
     const std::string name = trim_ascii(raw_name);
     const std::string lower = lower_ascii(name);
-    if (lower.rfind("mouse:", 0) == 0) return canonical_mouse_event_key(name.substr(6));
-    if (lower.rfind("mouse_", 0) == 0) return canonical_mouse_event_key(name);
+    if (lower.starts_with("mouse:")) return canonical_mouse_event_key(name.substr(6));
+    if (lower.starts_with("mouse_")) return canonical_mouse_event_key(name);
     if (name.find('+') != std::string::npos) {
         std::string id;
         size_t start = 0;
@@ -1343,7 +1343,7 @@ Task Runtime::call_user_function(const Function& function, std::vector<Value> ar
 
     // The function gets its own scope: the parameters are seeded into it and
     // every assignment inside the body stays there.
-    std::unordered_map<std::string, Value> scope;
+    VariableMap scope;
     for (size_t index = 0; index < function.params.size(); ++index) {
         scope[function.params[index]] = std::move(args[index]);
     }
@@ -1358,65 +1358,79 @@ Task Runtime::call_user_function(const Function& function, std::vector<Value> ar
     }
 }
 
-Value Runtime::call_function(const std::string& name, std::vector<Value> args, const EventContext& context) {
+Value Runtime::call_builtin(Builtin builtin, const std::string& name, std::vector<Value> args, const EventContext& context) {
     const auto require = [&](size_t count) {
         if (args.size() == count) return;
         throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected " + std::to_string(count) +
                                   " argument(s), got " + std::to_string(args.size()));
     };
+    const auto require_string = [&](size_t index) -> const std::string& {
+        if (args[index].type != Value::Type::Str) {
+            throw RuntimeErrorLoomwright(name + "() expects a string, got " + type_name(args[index]));
+        }
+        return args[index].text;
+    };
+    const auto find_gui_widget = [&](const std::string& raw_id) -> GuiHost* {
+        const std::string id = lower_ascii(trim_ascii(raw_id));
+        for (auto& host : gui_hosts_) {
+            if (host->has_widget(id)) return host.get();
+        }
+        return nullptr;
+    };
 
-    if (name == "min" || name == "max") {
+    switch (builtin) {
+    case Builtin::Min: case Builtin::Max: {
         if (args.empty()) {
             throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected at least 1 argument");
         }
         Value best = args.front();
         for (size_t index = 1; index < args.size(); ++index) {
-            const bool replace = name == "min" ? compare_values(args[index], best) < 0
+            const bool replace = builtin == Builtin::Min ? compare_values(args[index], best) < 0
                                                : compare_values(best, args[index]) < 0;
             if (replace) best = args[index];
         }
         return best;
     }
-    if (name == "abs") {
+    case Builtin::Abs: {
         require(1);
         if (args[0].type == Value::Type::Float) return Value::of_float(std::fabs(args[0].real));
         const long long value = args[0].as_int();
         return Value::of_int(value < 0 ? -value : value);
     }
-    if (name == "round") {
+    case Builtin::Round: {
         require(1);
         return Value::of_int(static_cast<long long>(std::nearbyint(args[0].as_double())));
     }
-    if (name == "floor") {
+    case Builtin::Floor: {
         require(1);
         return Value::of_int(static_cast<long long>(std::floor(args[0].as_double())));
     }
-    if (name == "ceil") {
+    case Builtin::Ceil: {
         require(1);
         return Value::of_int(static_cast<long long>(std::ceil(args[0].as_double())));
     }
-    if (name == "sqrt") {
+    case Builtin::Sqrt: {
         require(1);
         const double value = args[0].as_double();
         if (value < 0.0) throw RuntimeErrorLoomwright("math domain error");
         return Value::of_float(std::sqrt(value));
     }
-    if (name == "clamp") {
+    case Builtin::Clamp: {
         require(3);
         Value result = args[0];
         if (compare_values(result, args[2]) > 0) result = args[2];
         if (compare_values(result, args[1]) < 0) result = args[1];
         return result;
     }
-    if (name == "int") {
+    case Builtin::Int: {
         require(1);
         return Value::of_int(args[0].as_int());
     }
-    if (name == "float") {
+    case Builtin::Float: {
         require(1);
         return Value::of_float(args[0].as_double());
     }
-    if (name == "is_number") {
+    case Builtin::IsNumber: {
         require(1);
         try {
             const std::string value = trim_ascii(args[0].to_string());
@@ -1427,15 +1441,15 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             return Value::of_bool(false);
         }
     }
-    if (name == "str") {
+    case Builtin::Str: {
         require(1);
         return Value::of_str(args[0].to_string());
     }
-    if (name == "bool") {
+    case Builtin::Bool: {
         require(1);
         return Value::of_bool(args[0].truthy());
     }
-    if (name == "len") {
+    case Builtin::Len: {
         require(1);
         if (args[0].type == Value::Type::List) {
             return Value::of_int(static_cast<long long>(args[0].list_items().size()));
@@ -1446,11 +1460,11 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_int(static_cast<long long>(utf8_length(args[0].text)));
     }
-    if (name == "random") {
+    case Builtin::Random: {
         require(0);
         return Value::of_float(std::generate_canonical<double, 53>(random_engine_));
     }
-    if (name == "randint") {
+    case Builtin::Randint: {
         require(2);
         const long long low = args[0].as_int();
         const long long high = args[1].as_int();
@@ -1458,20 +1472,20 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         std::uniform_int_distribution<long long> distribution(low, high);
         return Value::of_int(distribution(random_engine_));
     }
-    if (name == "elapsed") {
+    case Builtin::Elapsed: {
         require(0);
         return Value::of_float(scheduler_.now() - started_at_);
     }
-    if (name == "key_down") {
+    case Builtin::KeyDown: {
         require(1);
         return Value::of_bool(pressed_keys_.find(canonical_key(args[0].to_string())) != pressed_keys_.end());
     }
-    if (name == "mouse_held") {
+    case Builtin::MouseHeld: {
         require(1);
         const auto found = button_refs_.find(lower_ascii(args[0].to_string()));
         return Value::of_bool(found != button_refs_.end() && found->second > 0);
     }
-    if (name == "suspend_hotkeys") {
+    case Builtin::SuspendHotkeys: {
         require(1);
         if (args[0].truthy()) {
             suspended_hotkeys_ = true;
@@ -1492,11 +1506,11 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_bool(suspended_hotkeys_);
     }
-    if (name == "hotkeys_suspended") {
+    case Builtin::HotkeysSuspended: {
         require(0);
         return Value::of_bool(suspended_hotkeys_);
     }
-    if (name == "set_hotkey_enabled") {
+    case Builtin::SetHotkeyEnabled: {
         require(2);
         const std::string id = hotkey_id_for_name(args[0].to_string());
         if (args[1].truthy()) {
@@ -1506,7 +1520,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_bool(true);
     }
-    if (name == "hotkey_enabled") {
+    case Builtin::HotkeyEnabled: {
         require(1);
         const std::string id = hotkey_id_for_name(args[0].to_string());
         const bool disabled = disabled_hotkeys_.find(id) != disabled_hotkeys_.end();
@@ -1514,14 +1528,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
                                suspended_exempt_hotkeys_.find(id) == suspended_exempt_hotkeys_.end();
         return Value::of_bool(!disabled && !suspended);
     }
-    const auto find_gui_widget = [&](const std::string& raw_id) -> GuiHost* {
-        const std::string id = lower_ascii(trim_ascii(raw_id));
-        for (auto& host : gui_hosts_) {
-            if (host->has_widget(id)) return host.get();
-        }
-        return nullptr;
-    };
-    if (name == "gui_value") {
+    case Builtin::GuiValue: {
         require(1);
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
@@ -1530,7 +1537,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_str(host->value(id));
     }
-    if (name == "gui_set_text") {
+    case Builtin::GuiSetText: {
         require(2);
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
@@ -1540,7 +1547,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         host->set_text(id, args[1].to_string());
         return Value::of_bool(true);
     }
-    if (name == "gui_set_visible") {
+    case Builtin::GuiSetVisible: {
         require(2);
         const std::string title = trim_ascii(args[0].to_string());
         bool found = false;
@@ -1555,19 +1562,19 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_bool(true);
     }
-    if (name == "active_window_title") {
+    case Builtin::ActiveWindowTitle: {
         require(0);
         return Value::of_str(active_window_info().at("title"));
     }
-    if (name == "active_window_class") {
+    case Builtin::ActiveWindowClass: {
         require(0);
         return Value::of_str(active_window_info().at("class"));
     }
-    if (name == "active_window_process") {
+    case Builtin::ActiveWindowProcess: {
         require(0);
         return Value::of_str(active_window_info().at("process"));
     }
-    if (name == "active_window_pid") {
+    case Builtin::ActiveWindowPid: {
         require(0);
         const std::string value = active_window_info().at("pid");
         if (value.empty()) return Value::of_int(0);
@@ -1577,7 +1584,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             return Value::of_int(0);
         }
     }
-    if (name == "gui_alert") {
+    case Builtin::GuiAlert: {
         if (args.size() < 1 || args.size() > 2) {
             throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
                                       std::to_string(args.size()));
@@ -1585,7 +1592,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         gui_alert(args[0].to_string(), args.size() == 2 ? args[1].to_string() : script_.name);
         return Value::of_bool(true);
     }
-    if (name == "gui_input") {
+    case Builtin::GuiInput: {
         if (args.size() < 1 || args.size() > 3) {
             throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 to 3 argument(s), got " +
                                       std::to_string(args.size()));
@@ -1594,7 +1601,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
                                        args.size() > 1 ? args[1].to_string() : std::string(),
                                        args.size() > 2 ? args[2].to_string() : script_.name));
     }
-    if (name == "gui_confirm") {
+    case Builtin::GuiConfirm: {
         if (args.size() < 1 || args.size() > 2) {
             throw RuntimeErrorLoomwright("Invalid arguments for " + name + "(): expected 1 or 2 argument(s), got " +
                                       std::to_string(args.size()));
@@ -1602,52 +1609,46 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         return Value::of_bool(gui_confirm(args[0].to_string(),
                                            args.size() == 2 ? args[1].to_string() : script_.name));
     }
-    if (name == "screen_width") {
+    case Builtin::ScreenWidth: {
         require(0);
         return Value::of_int(width_);
     }
-    if (name == "screen_height") {
+    case Builtin::ScreenHeight: {
         require(0);
         return Value::of_int(height_);
     }
 
     // Strings.
-    const auto require_string = [&](size_t index) -> const std::string& {
-        if (args[index].type != Value::Type::Str) {
-            throw RuntimeErrorLoomwright(name + "() expects a string, got " + type_name(args[index]));
-        }
-        return args[index].text;
-    };
-    if (name == "upper") {
+    case Builtin::Upper: {
         require(1);
         std::string text = require_string(0);
         for (char& c : text) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
         return Value::of_str(std::move(text));
     }
-    if (name == "lower") {
+    case Builtin::Lower: {
         require(1);
         std::string text = require_string(0);
         for (char& c : text) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         return Value::of_str(std::move(text));
     }
-    if (name == "trim") {
+    case Builtin::Trim: {
         require(1);
         return Value::of_str(trim_ascii(require_string(0)));
     }
-    if (name == "starts_with") {
+    case Builtin::StartsWith: {
         require(2);
         const std::string& text = require_string(0);
         const std::string& prefix = require_string(1);
-        return Value::of_bool(text.rfind(prefix, 0) == 0);
+        return Value::of_bool(text.starts_with(prefix));
     }
-    if (name == "ends_with") {
+    case Builtin::EndsWith: {
         require(2);
         const std::string& text = require_string(0);
         const std::string& suffix = require_string(1);
         if (suffix.size() > text.size()) return Value::of_bool(false);
         return Value::of_bool(text.compare(text.size() - suffix.size(), suffix.size(), suffix) == 0);
     }
-    if (name == "contains") {
+    case Builtin::Contains: {
         require(2);
         if (args[0].is_list()) {
             for (const Value& item : args[0].list_items()) {
@@ -1658,7 +1659,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const std::string& text = require_string(0);
         return Value::of_bool(text.find(require_string(1)) != std::string::npos);
     }
-    if (name == "replace") {
+    case Builtin::Replace: {
         require(3);
         const std::string& text = require_string(0);
         const std::string& from = require_string(1);
@@ -1678,7 +1679,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_str(std::move(out));
     }
-    if (name == "substr") {
+    case Builtin::Substr: {
         if (args.size() < 2 || args.size() > 3) {
             throw RuntimeErrorLoomwright("Invalid arguments for substr(): expected 2 or 3 argument(s), got " +
                                       std::to_string(args.size()));
@@ -1696,7 +1697,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const size_t end = utf8_offset(text, static_cast<size_t>(start + length));
         return Value::of_str(text.substr(begin, end - begin));
     }
-    if (name == "index_of") {
+    case Builtin::IndexOf: {
         require(2);
         const std::string& text = require_string(0);
         const std::string& needle = require_string(1);
@@ -1706,7 +1707,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
 
     // Lists.
-    if (name == "join") {
+    case Builtin::Join: {
         require(2);
         const std::string& separator = require_string(1);
         std::string out;
@@ -1720,7 +1721,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_str(std::move(out));
     }
-    if (name == "split") {
+    case Builtin::Split: {
         require(2);
         const std::string& text = require_string(0);
         const std::string& separator = require_string(1);
@@ -1738,13 +1739,13 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         }
         return Value::of_list(std::move(parts));
     }
-    if (name == "append") {
+    case Builtin::Append: {
         require(2);
         std::vector<Value>& items = args[0].list_items();
         items.push_back(args[1]);
         return args[0];
     }
-    if (name == "sort") {
+    case Builtin::Sort: {
         require(1);
         std::vector<Value>& items = args[0].list_items();
         std::stable_sort(items.begin(), items.end(),
@@ -1752,14 +1753,13 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         return args[0];
     }
 
-    if (is_builtin_function(name)) {
+    default:
         throw RuntimeErrorLoomwright("Function " + quote_string(name) + " is declared but not implemented");
     }
-    throw RuntimeErrorLoomwright("Unknown function " + quote_string(name));
 }
 
 Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out) {
-    if (!expr->may_wait) {
+    if (!expr->may_wait) [[likely]] {
         // Nothing in this expression can wait, so it is evaluated without a
         // coroutine: no frame is allocated and the script keeps running in
         // the same stack frame.
@@ -1793,7 +1793,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             const std::vector<Value>& items = base.list_items();
             long long index = index_value.as_int();
             if (index < 0) index += static_cast<long long>(items.size());
-            if (index < 0 || index >= static_cast<long long>(items.size())) {
+            if (index < 0 || index >= static_cast<long long>(items.size())) [[unlikely]] {
                 throw RuntimeErrorLoomwright("list index out of range");
             }
             out = items[static_cast<size_t>(index)];
@@ -1835,14 +1835,17 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
                 LOOMWRIGHT_EVAL(argument, context, value);
                 args.push_back(std::move(value));
             }
-            const auto user_function = functions_.find(expr->name);
-            if (user_function != functions_.end()) {
-                Value result;
-                co_await call_user_function(*user_function->second, std::move(args), context, result);
-                out = std::move(result);
+            if (expr->builtin != Builtin::None) {
+                out = call_builtin(expr->builtin, expr->name, std::move(args), context);
                 break;
             }
-            out = call_function(expr->name, std::move(args), context);
+            const auto user_function = functions_.find(expr->name);
+            if (user_function == functions_.end()) {
+                throw RuntimeErrorLoomwright("Unknown function " + quote_string(expr->name));
+            }
+            Value result;
+            co_await call_user_function(*user_function->second, std::move(args), context, result);
+            out = std::move(result);
             break;
         }
     }
@@ -1856,7 +1859,7 @@ Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
             if (expr.name == "event_key") return Value::of_str(context.key);
             if (expr.name == "event_edge") return Value::of_str(context.edge);
             Value value;
-            if (!lookup_variable(expr.name, value)) {
+            if (!lookup_variable(expr.name, value)) [[unlikely]] {
                 throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr.name));
             }
             return value;
@@ -1878,7 +1881,7 @@ Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
             const std::vector<Value>& items = base.list_items();
             long long index = index_value.as_int();
             if (index < 0) index += static_cast<long long>(items.size());
-            if (index < 0 || index >= static_cast<long long>(items.size())) {
+            if (index < 0 || index >= static_cast<long long>(items.size())) [[unlikely]] {
                 throw RuntimeErrorLoomwright("list index out of range");
             }
             return items[static_cast<size_t>(index)];
@@ -1899,7 +1902,7 @@ Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
             // A built-in function never waits, so it is evaluated here. A
             // call to a user-defined function may wait, and the parser marks
             // such an expression so it never reaches this path.
-            if (functions_.find(expr.name) != functions_.end()) {
+            if (expr.builtin == Builtin::None) {
                 throw RuntimeErrorLoomwright("internal error: a function call cannot be evaluated without waiting");
             }
             std::vector<Value> args;
@@ -1907,7 +1910,7 @@ Value Runtime::eval_pure(const Expr& expr, const EventContext& context) {
             for (const auto& argument : expr.args) {
                 args.push_back(eval_pure(*argument, context));
             }
-            return call_function(expr.name, std::move(args), context);
+            return call_builtin(expr.builtin, expr.name, std::move(args), context);
         }
     }
     return Value::none();

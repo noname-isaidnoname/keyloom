@@ -5,6 +5,7 @@
 #include <utility>
 #include <vector>
 
+#include "builtins.hpp"
 #include "value.hpp"
 
 namespace loomwright {
@@ -53,6 +54,9 @@ struct Expr {
     /// to evaluate; an expression without one is evaluated without
     /// suspending, which keeps the hot path free of coroutine frames.
     bool may_wait = false;
+    /// The built-in a `Call` node resolves to, resolved once by the parser.
+    /// `Builtin::None` marks a call to a user-defined function.
+    Builtin builtin = Builtin::None;
 };
 
 enum class StmtKind {

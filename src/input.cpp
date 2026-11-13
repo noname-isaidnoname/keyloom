@@ -226,7 +226,7 @@ std::vector<std::string> list_input_devices() {
     if (directory == nullptr) return paths;
     while (dirent* entry = ::readdir(directory)) {
         const std::string name = entry->d_name;
-        if (name.rfind("event", 0) != 0) continue;
+        if (!name.starts_with("event")) continue;
         paths.push_back("/dev/input/" + name);
     }
     ::closedir(directory);

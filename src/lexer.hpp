@@ -16,7 +16,6 @@ const char* token_kind_name(TokenKind kind);
 struct Token {
     TokenKind kind = TokenKind::Eof;
     Value value;
-    std::string raw;
     int line = 1;
     int col = 1;
 };

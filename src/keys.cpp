@@ -1,6 +1,7 @@
 #include "keys.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstddef>
 #include <iterator>
@@ -43,30 +44,55 @@ const KeyEntry* find_key_entry(const std::string& name) {
 
 }  // namespace
 
-const std::unordered_map<std::string, std::string>& key_aliases() {
-    static const std::unordered_map<std::string, std::string> aliases = {
-        {"CTRL", "LEFTCTRL"},   {"CONTROL", "LEFTCTRL"}, {"SHIFT", "LEFTSHIFT"},
-        {"ALT", "LEFTALT"},     {"SUPER", "LEFTMETA"},   {"WIN", "LEFTMETA"},
-        {"CMD", "LEFTMETA"},    {"ESC", "ESC"},          {"ENTER", "ENTER"},
-        {"RETURN", "ENTER"},    {"BACKSPACE", "BACKSPACE"}, {"DEL", "DELETE"},
-        {"INS", "INSERT"},      {"PGUP", "PAGEUP"},      {"PGDN", "PAGEDOWN"},
-        {"SPACE", "SPACE"},     {"TAB", "TAB"},          {"CAPS", "CAPSLOCK"},
-        {"PRTSC", "SYSRQ"},     {"PRINTSCREEN", "SYSRQ"}, {"PAUSE", "PAUSE"},
-    };
-    return aliases;
+struct KeyAlias {
+    std::string_view name;
+    std::string_view canonical;
+};
+
+constexpr std::array<KeyAlias, 21> kKeyAliases = {{
+    {"ALT", "LEFTALT"},    {"BACKSPACE", "BACKSPACE"}, {"CAPS", "CAPSLOCK"},
+    {"CMD", "LEFTMETA"},   {"CONTROL", "LEFTCTRL"},    {"CTRL", "LEFTCTRL"},
+    {"DEL", "DELETE"},     {"ENTER", "ENTER"},         {"ESC", "ESC"},
+    {"INS", "INSERT"},     {"PAUSE", "PAUSE"},         {"PGDN", "PAGEDOWN"},
+    {"PGUP", "PAGEUP"},    {"PRINTSCREEN", "SYSRQ"},   {"PRTSC", "SYSRQ"},
+    {"RETURN", "ENTER"},   {"SHIFT", "LEFTSHIFT"},     {"SPACE", "SPACE"},
+    {"SUPER", "LEFTMETA"}, {"TAB", "TAB"},             {"WIN", "LEFTMETA"},
+}};
+
+constexpr bool key_aliases_sorted() {
+    for (size_t index = 1; index < kKeyAliases.size(); ++index) {
+        if (kKeyAliases[index - 1].name >= kKeyAliases[index].name) return false;
+    }
+    return true;
 }
 
-const std::unordered_map<std::string, int>& mouse_buttons() {
-    static const std::unordered_map<std::string, int> buttons = {
-        {"left", 0}, {"right", 1}, {"middle", 2}, {"side", 3}, {"extra", 4},
-    };
-    return buttons;
+static_assert(key_aliases_sorted(), "the alias table must stay sorted by name");
+
+std::string_view find_alias(std::string_view upper) {
+    const auto* found = std::lower_bound(kKeyAliases.begin(), kKeyAliases.end(), upper,
+                                         [](const KeyAlias& entry, std::string_view needle) {
+                                             return entry.name < needle;
+                                         });
+    if (found == kKeyAliases.end() || found->name != upper) return {};
+    return found->canonical;
+}
+
+constexpr std::array<std::pair<std::string_view, int>, 5> kMouseButtons = {{
+    {"extra", 4}, {"left", 0}, {"middle", 2}, {"right", 1}, {"side", 3},
+}};
+
+const std::pair<std::string_view, int>* find_mouse_button(std::string_view name) {
+    const auto* found = std::lower_bound(kMouseButtons.begin(), kMouseButtons.end(), name,
+                                         [](const std::pair<std::string_view, int>& entry,
+                                            std::string_view needle) { return entry.first < needle; });
+    if (found == kMouseButtons.end() || found->first != name) return nullptr;
+    return found;
 }
 
 bool is_mouse_button(const std::string& name) {
     // The table has a handful of entries, so a case-insensitive comparison
     // without a lowercase copy of the name is cheaper than building one.
-    for (const auto& entry : mouse_buttons()) {
+    for (const auto& entry : kMouseButtons) {
         if (name.size() != entry.first.size()) continue;
         bool equal = true;
         for (size_t index = 0; index < name.size(); ++index) {
@@ -94,33 +120,31 @@ std::string lower_ascii(std::string text) {
     return text;
 }
 
+constexpr std::array<std::string_view, 64> kCommonKeys = {{
+    "APOSTROPHE", "BACKSLASH", "BACKSPACE", "CAPSLOCK", "COMMA", "COMPOSE",
+    "DELETE", "DOT", "DOWN", "END", "ENTER", "EQUAL", "ESC", "GRAVE",
+    "HOME", "INSERT", "KP0", "KP1", "KP2", "KP3", "KP4", "KP5", "KP6", "KP7",
+    "KP8", "KP9", "KPASTERISK", "KPDOT", "KPENTER", "KPMINUS", "KPPLUS",
+    "KPSLASH", "LEFT", "LEFTALT", "LEFTBRACE", "LEFTCTRL", "LEFTMETA",
+    "LEFTSHIFT", "MENU", "MINUS", "MUTE", "NEXTSONG", "NUMLOCK", "PAGEDOWN",
+    "PAGEUP", "PAUSE", "PLAYPAUSE", "PREVIOUSSONG", "RIGHT", "RIGHTALT",
+    "RIGHTBRACE", "RIGHTCTRL", "RIGHTMETA", "RIGHTSHIFT", "SCROLLLOCK",
+    "SEMICOLON", "SLASH", "SPACE", "STOPCD", "SYSRQ", "TAB", "UP",
+    "VOLUMEDOWN", "VOLUMEUP",
+}};
+
+static_assert(std::ranges::is_sorted(kCommonKeys), "the common-key table must stay sorted");
+
 bool is_common_key(const std::string& canonical) {
-    static const char* const kCommonKeys[] = {
-        "ESC",       "ENTER",      "BACKSPACE",  "TAB",        "SPACE",      "MINUS",
-        "EQUAL",     "LEFTBRACE",  "RIGHTBRACE", "BACKSLASH",  "SEMICOLON",  "APOSTROPHE",
-        "GRAVE",     "COMMA",      "DOT",        "SLASH",      "CAPSLOCK",   "SYSRQ",
-        "SCROLLLOCK","PAUSE",      "INSERT",     "HOME",       "PAGEUP",     "DELETE",
-        "END",       "PAGEDOWN",   "RIGHT",      "LEFT",       "DOWN",       "UP",
-        "NUMLOCK",   "LEFTCTRL",   "LEFTSHIFT",  "LEFTALT",    "LEFTMETA",   "RIGHTCTRL",
-        "RIGHTSHIFT","RIGHTALT",   "RIGHTMETA",  "MENU",       "COMPOSE",    "KPENTER",
-        "KPDOT",     "KPSLASH",    "KPASTERISK", "KPMINUS",    "KPPLUS",     "KP0",
-        "KP1",       "KP2",        "KP3",        "KP4",        "KP5",        "KP6",
-        "KP7",       "KP8",        "KP9",        "MUTE",       "VOLUMEDOWN", "VOLUMEUP",
-        "PLAYPAUSE", "STOPCD",     "PREVIOUSSONG","NEXTSONG",
-    };
-    for (const char* key : kCommonKeys) {
-        if (canonical == key) return true;
-    }
-    return false;
+    return std::binary_search(kCommonKeys.begin(), kCommonKeys.end(), std::string_view(canonical));
 }
 
 }  // namespace
 
 std::string canonical_key_name(const std::string& name) {
     const std::string upper = upper_ascii(name);
-    const auto& aliases = key_aliases();
-    const auto found = aliases.find(upper);
-    return found == aliases.end() ? upper : found->second;
+    const std::string_view alias = find_alias(upper);
+    return alias.empty() ? upper : std::string(alias);
 }
 
 std::string validate_key_name(const std::string& name) {
@@ -169,7 +193,7 @@ const char* key_name_for_code(int code) {
 std::string canonical_mouse_event_key(const std::string& name) {
     std::string lowered = lower_ascii(name);
     const std::string prefix = "mouse_";
-    if (lowered.rfind(prefix, 0) == 0) lowered = lowered.substr(prefix.size());
+    if (lowered.starts_with(prefix)) lowered = lowered.substr(prefix.size());
     return "MOUSE_" + upper_ascii(lowered);
 }
 

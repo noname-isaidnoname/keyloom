@@ -24,9 +24,8 @@ const std::vector<int>& pointer_buttons() {
 }
 
 int button_code(const std::string& name) {
-    const auto& buttons = mouse_buttons();
-    const auto found = buttons.find(name);
-    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + quote_string(name));
+    const auto found = find_mouse_button(name);
+    if (found == nullptr) throw BackendError("Unsupported mouse button " + quote_string(name));
     static const int kCodes[] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA};
     return kCodes[found->second];
 }
@@ -139,9 +138,8 @@ void YdotoolBackend::move(int dx, int dy) { pointer().move(dx, dy); }
 void YdotoolBackend::button(const std::string& name, bool down) {
     // ydotoold's click encoding uses its own button index (0 = left) plus 0x40 for
     // down and 0x80 for up, not the kernel BTN_* code.
-    const auto& buttons = mouse_buttons();
-    const auto found = buttons.find(name);
-    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + quote_string(name));
+    const auto found = find_mouse_button(name);
+    if (found == nullptr) throw BackendError("Unsupported mouse button " + quote_string(name));
     const int code = found->second | (down ? 0x40 : 0x80);
     char encoded[16];
     std::snprintf(encoded, sizeof(encoded), "0x%x", code);

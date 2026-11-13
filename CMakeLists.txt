@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 
 project(loomwright
-    VERSION 0.5.5
+    VERSION 0.5.6
     DESCRIPTION "A Linux-first desktop automation language and runtime"
     LANGUAGES C CXX)
 

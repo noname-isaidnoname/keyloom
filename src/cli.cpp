@@ -337,7 +337,7 @@ CliArgs parse_cli(const std::vector<std::string>& args) {
         std::string token = args[index];
         std::string inline_value;
         bool has_inline = false;
-        if (token.rfind("--", 0) == 0) {
+        if (token.starts_with("--")) {
             const size_t equals = token.find('=');
             if (equals != std::string::npos) {
                 inline_value = token.substr(equals + 1);
@@ -370,7 +370,7 @@ CliArgs parse_cli(const std::vector<std::string>& args) {
             note_mode(token);
             if (has_inline) {
                 parsed.docs = inline_value;
-            } else if (index + 1 < args.size() && args[index + 1].rfind('-', 0) != 0) {
+            } else if (index + 1 < args.size() && !args[index + 1].starts_with("-")) {
                 parsed.docs = args[++index];
             } else {
                 parsed.docs = "all";

@@ -86,16 +86,19 @@ wait by `execute_pure()`, so the common path of a script does not allocate a
 coroutine frame. The parser marks the expressions and the statements that may
 wait.
 
-`call_function()` implements every builtin in the table below.
-`call_user_function()` binds parameters into a fresh scope, pushes it, runs the
+The parser resolves every call site to a `Builtin` enumerator once; `Runtime::call_builtin()`
+dispatches on the enum. `call_user_function()` binds parameters into a fresh scope, pushes it, runs the
 body, and pops it on the way out. A function can read the script's variables
 but its own assignments stay local.
 
 ## Builtins
 
-The table in `src/builtins.cpp` is the single source of truth for names and
-arity. `Runtime::call_function` implements exactly these names; anything else
-is an unknown function. Current groups:
+The table in `src/builtins.cpp` is a `constexpr` array sorted by name and is the
+single source of truth for names and arity; a `static_assert` guards the sorted
+order. `Runtime::call_builtin` implements exactly these ids; anything else is a
+user-defined function or an unknown function reported by the checker. Call sites
+carry the resolved `Expr::builtin`, so evaluation dispatches on the enum instead of
+comparing spellings while a script runs. Current groups:
 
 - Numbers/general: `min`, `max`, `abs`, `round`, `floor`, `ceil`, `sqrt`,
   `clamp`, `int`, `float`, `is_number`, `str`, `bool`, `len`, `random`,
@@ -119,7 +122,7 @@ Key names accept identifiers and numeric tokens, so `when key 1 goes down` and
 `canonical_key()` in `src/runtime.cpp` wraps it.
 
 Mouse buttons are `left`, `right`, `middle`, `side`, `extra`
-(`mouse_buttons()` in `src/keys.cpp`). Runtime event names carry a `MOUSE_`
+(`find_mouse_button()` in `src/keys.cpp`). Runtime event names carry a `MOUSE_`
 prefix (`MOUSE_LEFT`, ...), and `normalize_key_event()` maps `BTN_*` codes to
 them, so the left button can never fire a `LEFT` arrow-key binding.
 
@@ -141,8 +144,9 @@ single-pass; a chained replace broke `"\\n"`.
 ### Add a builtin
 
 1. Add the name and arity to the table in `src/builtins.cpp`.
-2. Implement it in `Runtime::call_function()`.
-3. Document it in `src/docs.cpp`.
+2. Add the `Builtin` enumerator to `src/builtins.hpp` and implement it in `Runtime::call_builtin()`.
+3. Give it a row in `src/builtins.cpp` (keep the table sorted by name; the `static_assert` enforces it).
+4. Document it in `src/docs.cpp`.
 
 ### Add a backend
 

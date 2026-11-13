@@ -2,12 +2,10 @@
 
 #include <optional>
 #include <string>
-#include <unordered_map>
+#include <string_view>
+#include <utility>
 
 namespace loomwright {
-
-/// Keyboard aliases accepted in scripts: CTRL, SHIFT, WIN, ESC, PGUP, ...
-const std::unordered_map<std::string, std::string>& key_aliases();
 
 /// Upper-case a key name and resolve its alias (`ctrl` -> `LEFTCTRL`).
 std::string canonical_key_name(const std::string& name);
@@ -27,8 +25,9 @@ std::optional<std::string> normalize_key_event(int code);
 
 const char* key_name_for_code(int code);
 
-/// Mouse buttons in the order the language exposes them.
-const std::unordered_map<std::string, int>& mouse_buttons();
+/// Case-insensitive lookup of a mouse button (`left` -> 0). Returns nullptr
+/// when the name is not one of the five buttons the language exposes.
+const std::pair<std::string_view, int>* find_mouse_button(std::string_view name);
 
 bool is_mouse_button(const std::string& name);
 

@@ -1,10 +1,13 @@
 #include "checker.hpp"
 
 #include <algorithm>
-#include <functional>
+#include <array>
+#include <concepts>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 
@@ -16,24 +19,28 @@ namespace loomwright {
 namespace {
 
 struct OptionRule {
-    const char* name;
-    std::vector<std::string> values;  // empty means "any string"
+    std::string_view name;
+    std::span<const std::string_view> values;  // empty means "any string"
     bool boolean = false;
 };
 
-const std::vector<OptionRule>& option_rules() {
-    static const std::vector<OptionRule> rules = {
-        {"input", {"auto", "evdev"}, false},
-        {"output", {"auto", "ydotool", "uinput"}, false},
-        {"compositor", {"auto", "x11", "wayland"}, false},
-        {"panic", {}, false},
-        {"screen", {}, false},
-        {"allow_launch", {}, true},
-    };
-    return rules;
-}
+namespace {
+constexpr std::array<std::string_view, 2> kInputValues = {"auto", "evdev"};
+constexpr std::array<std::string_view, 3> kOutputValues = {"auto", "ydotool", "uinput"};
+constexpr std::array<std::string_view, 3> kCompositorValues = {"auto", "x11", "wayland"};
+constexpr std::array<OptionRule, 6> kOptionRules = {{
+    {"input", kInputValues, false},
+    {"output", kOutputValues, false},
+    {"compositor", kCompositorValues, false},
+    {"panic", {}, false},
+    {"screen", {}, false},
+    {"allow_launch", {}, true},
+}};
+}  // namespace
 
-const OptionRule* find_rule(const std::string& key) {
+const std::span<const OptionRule> option_rules() { return kOptionRules; }
+
+const OptionRule* find_rule(std::string_view key) {
     for (const auto& rule : option_rules()) {
         if (key == rule.name) return &rule;
     }
@@ -42,7 +49,8 @@ const OptionRule* find_rule(const std::string& key) {
 
 bool uinput_writable() { return access("/dev/uinput", W_OK) == 0; }
 
-void walk(const std::vector<Node>& nodes, const std::function<void(const Node&)>& visit) {
+template <std::invocable<const Node&> F>
+void walk(const std::vector<Node>& nodes, F&& visit) {
     for (const auto& node : nodes) {
         visit(node);
         walk(node.body, visit);
@@ -57,8 +65,8 @@ struct Scope {
 };
 
 /// Walk statements with the loop and function depth of every node.
-void walk_scoped(const std::vector<Node>& nodes, Scope scope,
-                 const std::function<void(const Node&, const Scope&)>& visit) {
+template <std::invocable<const Node&, const Scope&> F>
+void walk_scoped(const std::vector<Node>& nodes, Scope scope, F&& visit) {
     for (const auto& node : nodes) {
         Scope inner = scope;
         if (node.stmt == StmtKind::For || node.stmt == StmtKind::Repeat || node.stmt == StmtKind::While) {
@@ -70,7 +78,8 @@ void walk_scoped(const std::vector<Node>& nodes, Scope scope,
     }
 }
 
-void walk_expression(const ExprPtr& expr, const std::function<void(const Expr&)>& visit) {
+template <std::invocable<const Expr&> F>
+void walk_expression(const ExprPtr& expr, F&& visit) {
     if (!expr) return;
     visit(*expr);
     for (const auto& argument : expr->args) walk_expression(argument, visit);
@@ -444,7 +453,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
     for (const auto& token : held_tokens) {
         if (freed_tokens.find(token) == freed_tokens.end()) unheld.push_back(token);
     }
-    std::sort(unheld.begin(), unheld.end());
+    std::ranges::sort(unheld);
     for (const auto& token : unheld) {
         out.push_back({"warning",
                        "Mouse hold token " + quote_string(token) +
@@ -455,7 +464,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
     for (const auto& token : freed_tokens) {
         if (held_tokens.find(token) == held_tokens.end()) unfreed.push_back(token);
     }
-    std::sort(unfreed.begin(), unfreed.end());
+    std::ranges::sort(unfreed);
     for (const auto& token : unfreed) {
         out.push_back({"warning", "Mouse hold token " + quote_string(token) + " is freed but never held", 0});
     }

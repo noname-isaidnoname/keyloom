@@ -54,6 +54,34 @@ Link-time optimization is worth about 13 % of the same benchmark, because the
 runtime is split over many translation units and the inliner only sees across
 them when the linker gets the bitcode.
 
+## C++20 passes (0.5.6)
+
+The interpreter dispatch now resolves what it can at compile time. The parser
+resolves every builtin call site to a `Builtin` enumerator; `Runtime::call_builtin`
+switches on the enum instead of walking a chain of string comparisons. The
+builtin table is a `constexpr` array sorted by name with `static_assert`s
+guarding the order and id coverage; the alias, mouse-button and common-key
+tables in `src/keys.cpp` are `constexpr` arrays searched with `std::lower_bound`
+and `std::binary_search` over `std::string_view`, and the generated tables in
+`src/keys.inc` are covered by the existing `std::size` sanity check. The lexer
+no longer carries an unused `raw` slice on every token and the newline token no
+longer allocates a `"\\n"` string. The checker's tree walkers use concepts
+instead of `std::function`.
+
+The benchmark is unchanged within noise on this machine (pinned to one core,
+load average ~2.6): ~25 ms per run, 29 974 allocations per run, parse still
+0.01 ms per script. The pass is a codegen-quality change, not a throughput
+change: the hot path no longer depends on per-call string dispatch, and the
+tables cannot silently drift out of sorted order.
+
+| Approach | Result |
+| --- | --- |
+| Builtin enum dispatch + constexpr tables | Kept: measured at parity, cleaner codegen |
+| Lexer `Token::raw` removal | Kept: dead field, one string move saved per token |
+| Concepts instead of `std::function` in checker walkers | Kept: no type erasure, no possible small-buffer spill |
+| Keyword interning (`TokenKind::Keyword`) | Rejected: the language's keywords are soft and context-dependent; parse is 0.01 ms of a 25 ms workload |
+| Heterogeneous lookup for `unordered_map` (`std::hash<std::string_view>`) | Rejected after measurement: 10–12 % slower (`27.6`–`28.4 ms` vs `24.5`–`25.1 ms`); surface as-is has no temporary-string call sites that benefit |
+
 ## Results at 0.4.0
 
 | Measurement | Before | After |

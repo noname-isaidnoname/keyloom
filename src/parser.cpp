@@ -661,7 +661,12 @@ private:
                 left->name = ident;
                 left->line = token.line;
                 // A built-in function never waits; a user-defined function may.
-                left->may_wait = !is_builtin_function(ident);
+                // The callee is resolved once here so evaluation dispatches on
+                // the enum instead of comparing spellings.
+                if (const BuiltinInfo* info = find_builtin_function(ident)) {
+                    left->builtin = info->id;
+                }
+                left->may_wait = left->builtin == Builtin::None;
                 if (!accept(")")) {
                     while (true) {
                         left->args.push_back(parse_expr());

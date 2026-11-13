@@ -125,8 +125,7 @@ std::vector<Token> tokenize(const std::string& source) {
         if (c == '\n') {
             Token token;
             token.kind = TokenKind::Newline;
-            token.value = Value::of_str("\\n");
-            token.raw = "\n";
+            token.value = Value::none();
             token.line = static_cast<int>(line);
             token.col = static_cast<int>(col);
             out.push_back(std::move(token));
@@ -157,7 +156,6 @@ std::vector<Token> tokenize(const std::string& source) {
             Token token;
             token.kind = TokenKind::String;
             token.value = Value::of_str(decode_string(body));
-            token.raw = raw;
             token.line = static_cast<int>(line);
             token.col = static_cast<int>(col);
             out.push_back(std::move(token));
@@ -181,7 +179,6 @@ std::vector<Token> tokenize(const std::string& source) {
             const bool duration = has_duration_unit(source, scan, unit_length);
             const std::string raw = source.substr(position, scan - position + unit_length);
             Token token;
-            token.raw = raw;
             token.line = static_cast<int>(line);
             token.col = static_cast<int>(col);
             if (duration) {
@@ -209,7 +206,6 @@ std::vector<Token> tokenize(const std::string& source) {
             lowered.reserve(raw.size());
             for (char ch : raw) lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
             Token token;
-            token.raw = raw;
             token.line = static_cast<int>(line);
             token.col = static_cast<int>(col);
             if (lowered == "and" || lowered == "or" || lowered == "not") {
@@ -232,8 +228,7 @@ std::vector<Token> tokenize(const std::string& source) {
                 Token token;
                 token.kind = TokenKind::Op;
                 token.value = Value::of_str(op);
-                token.raw = op;
-                token.line = static_cast<int>(line);
+                    token.line = static_cast<int>(line);
                 token.col = static_cast<int>(col);
                 out.push_back(std::move(token));
                 position += 2;
@@ -249,7 +244,6 @@ std::vector<Token> tokenize(const std::string& source) {
             Token token;
             token.kind = TokenKind::Op;
             token.value = Value::of_str(std::string(1, c));
-            token.raw = std::string(1, c);
             token.line = static_cast<int>(line);
             token.col = static_cast<int>(col);
             out.push_back(std::move(token));

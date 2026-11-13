@@ -31,9 +31,9 @@ automation process before its output cleanup.
 | `src/uinput.cpp`, `src/uinput.hpp` | `UInputDevice`: creates the virtual device, batched `input_event` writes |
 | `src/input.cpp`, `src/input.hpp` | `InputDevice`: open/list `/dev/input/event*`, evdev caps, grab/ungrab, passthrough replay |
 | `src/subprocess.cpp`, `src/subprocess.hpp` | `run_command`/`spawn_detached`, `which`, `split_shell_words`, `ydotool_socket_path` |
-| `src/keys.cpp`, `src/keys.inc` | key-name tables, `validate_key_name`, `canonical_key_name`, `mouse_buttons` |
+| `src/keys.cpp`, `src/keys.inc` | key-name tables, `validate_key_name`, `canonical_key_name`, `find_mouse_button` |
 | `src/value.cpp`, `src/value.hpp` | `Value` (int/double/bool/string), `repr`/`str` formatting, truthiness |
-| `src/builtins.cpp`, `src/builtins.hpp` | the builtin-function table and arity lookup |
+| `src/builtins.cpp`, `src/builtins.hpp` | the builtin-function table (constexpr, sorted), arity lookup and the `Builtin` enum |
 | `src/mousepos.cpp`, `src/mousepos.hpp` | screenshot-overlay coordinate picker (`--get-mouse-pos`) |
 | `src/picker_xcb.cpp`, `src/picker_image.cpp` | the picker's XCB transport and screenshot pixel handling |
 | `src/gui.cpp`, `src/gui.hpp` | `GuiHost`: X11/Xwayland panels, keyboard mapping, event dispatch |
@@ -172,7 +172,7 @@ coroutine frame; the parser marks the statements that may wait (`wait`, a tap,
 a glide, an expression that calls a user function) in `Node::may_suspend`.
 `eval` evaluates expressions and is a coroutine because a user-defined function
 may wait; `eval_pure` evaluates an expression that cannot wait, without a
-coroutine frame. `call_function` implements builtins;
+coroutine frame. `call_builtin` dispatches builtins on the enum resolved at parse time;
 `call_user_function` pushes a fresh scope, binds parameters, and caps recursion
 at `kMaxCallDepth = 32`. Loops cap at `kMaxLoop = 10000`.
 

@@ -121,7 +121,7 @@ std::string validate_key_name(const std::string& name) {
     }
     valid = valid || is_common_key(canonical);
     if (!valid) {
-        throw BackendError("Unknown key " + py_repr_string(name) +
+        throw BackendError("Unknown key " + quote_string(name) +
                            ". Use names such as A, F8, CTRL, ESC, or LEFT.");
     }
     return canonical;
@@ -131,7 +131,7 @@ int key_code(const std::string& name) {
     const std::string canonical = validate_key_name(name);
     const KeyEntry* entry = find_key_entry(canonical);
     if (entry == nullptr) {
-        throw BackendError("Key " + py_repr_string(name) +
+        throw BackendError("Key " + quote_string(name) +
                            " is not available in this kernel's evdev key table");
     }
     return entry->code;

@@ -119,7 +119,7 @@ void Runtime::send_char(char c, const std::vector<std::string>& active_modifiers
     }
     const auto key = printable_key(c);
     if (!key) {
-        throw RuntimeErrorLoomwright("send cannot handle character " + py_repr_string(std::string(1, c)) +
+        throw RuntimeErrorLoomwright("send cannot handle character " + quote_string(std::string(1, c)) +
                                   " while modifiers are held");
     }
     send_target({key->key}, active_modifiers, pending_modifiers, key->shift);
@@ -274,7 +274,7 @@ void Runtime::launch_program(const std::string& command) {
     if (argv.empty()) throw RuntimeErrorLoomwright("launch command cannot be empty");
     std::string error;
     if (!spawn_detached(argv, error)) {
-        throw RuntimeErrorLoomwright("could not launch " + py_repr_string(argv.front()) + ": " + error);
+        throw RuntimeErrorLoomwright("could not launch " + quote_string(argv.front()) + ": " + error);
     }
 }
 

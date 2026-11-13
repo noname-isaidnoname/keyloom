@@ -1,6 +1,5 @@
 // Generated from <linux/input-event-codes.h>. Do not edit by hand.
-// Regenerate with:
-//   python3 -c "..."  (see scripts/gen-keytable.sh)
+// Regenerate with scripts/gen-keytable.sh.
 //
 // kKeyTable is sorted by name for lookup; kKeyReverse is sorted by code and
 // keeps the first name defined for a code, which is the canonical one

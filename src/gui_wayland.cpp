@@ -179,7 +179,7 @@ public:
     std::string value(const std::string& id) const override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind != GuiWidget::Kind::Input)
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not an input.");
         return texts_[static_cast<size_t>(i)];
     }
     void set_value(const std::string& id, const std::string& value) override { set_text(id, value); }
@@ -187,7 +187,7 @@ public:
         const int i = checked_index(id);
         const auto kind = panel_.widgets[static_cast<size_t>(i)].kind;
         if (kind == GuiWidget::Kind::Label)
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is a label and has no variable text target.");
         texts_[static_cast<size_t>(i)] = text;
         if (closed_) return;
         GtkWidget* control = controls_[static_cast<size_t>(i)];
@@ -226,7 +226,7 @@ private:
     }
     int checked_index(const std::string& id) const {
         const int i = index(id);
-        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
         return i;
     }
     GuiPanel panel_;
@@ -433,14 +433,14 @@ public:
     std::string value(const std::string& id) const override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind != GuiWidget::Kind::Input)
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not an input.");
         return texts_[static_cast<size_t>(i)];
     }
     void set_value(const std::string& id, const std::string& value) override { set_text(id, value); }
     void set_text(const std::string& id, const std::string& text) override {
         const int i = checked_index(id);
         if (panel_.widgets[static_cast<size_t>(i)].kind == GuiWidget::Kind::Label)
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is a label and has no variable text target.");
         if (!closed_ && !send_message(fd_, 'T', id, text))
             throw RuntimeErrorLoomwright("Could not send text to native Wayland panel.");
         texts_[static_cast<size_t>(i)] = text;
@@ -464,7 +464,7 @@ private:
     }
     int checked_index(const std::string& id) const {
         const int i = index(id);
-        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+        if (i < 0) throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
         return i;
     }
     GuiPanel panel_;

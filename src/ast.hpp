@@ -53,8 +53,8 @@ enum class StmtKind {
 
 const char* stmt_kind_name(StmtKind kind);
 
-/// One statement, or one `when` event block. Keeping the fields flat mirrors the
-/// original tuple-based nodes and keeps the checker/runtime dispatch readable.
+/// One statement, or one `when` event block. Keeping the fields flat keeps the
+/// node tuple-style and the checker/runtime dispatch readable.
 /// One widget in a persistent `gui` declaration. Labels are structural and
 /// have no identifier; inputs and buttons are addressable from callbacks and
 /// expression functions such as `gui_value()` and `gui_set_text()`.

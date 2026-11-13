@@ -20,9 +20,9 @@ struct Token {
     int col = 1;
 };
 
-/// Split .loom source into tokens. Mirrors the original scanner exactly:
-/// whitespace and `#` comments vanish, `\n` becomes a NEWLINE token, and the
-/// decoded string value is produced in a single pass.
+/// Split .loom source into tokens. Whitespace and `#` comments vanish, `\n`
+/// becomes a NEWLINE token, and the decoded string value is produced in a
+/// single pass.
 std::vector<Token> tokenize(const std::string& source);
 
 /// Decode the language's escape set once (`\\n` stays a backslash plus `n`).

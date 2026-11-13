@@ -7,6 +7,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
+#include <string_view>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -14,6 +15,11 @@
 
 namespace loomwright {
 namespace {
+
+/// The characters a POSIX shell treats as whitespace.
+bool is_shell_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
+}
 
 void make_nonblocking(int fd) {
     const int flags = fcntl(fd, F_GETFL, 0);
@@ -295,73 +301,61 @@ std::vector<std::string> split_shell_words(const std::string& text) {
     std::vector<std::string> words;
     std::string current;
     bool in_word = false;
+
+    const std::string_view source(text);
     size_t index = 0;
 
-    auto flush = [&]() {
-        if (in_word) {
-            words.push_back(current);
-            current.clear();
-            in_word = false;
-        }
+    const auto flush = [&]() {
+        if (!in_word) return;
+        words.push_back(current);
+        current.clear();
+        in_word = false;
     };
 
-    while (index < text.size()) {
-        const char c = text[index];
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v') {
+    while (index < source.size()) {
+        const char c = source[index];
+        if (is_shell_space(c)) {
             flush();
             ++index;
             continue;
         }
-        if (c == '#') {
-            // shlex.split leaves comments enabled: the rest of the line is dropped
-            // only when the '#' starts a word.
-            if (!in_word) {
-                while (index < text.size() && text[index] != '\n') ++index;
-                continue;
-            }
+        if (c == '#' && !in_word) {
+            // A '#' that starts a word comments out the rest of the line.
+            const size_t line_end = source.find('\n', index);
+            if (line_end == std::string_view::npos) break;
+            index = line_end;
+            continue;
         }
         if (c == '\\') {
-            if (index + 1 >= text.size()) {
+            if (index + 1 >= source.size()) {
                 throw BackendError("No escaped character");
             }
-            current.push_back(text[index + 1]);
+            current.push_back(source[index + 1]);
             in_word = true;
             index += 2;
             continue;
         }
-        if (c == '\'') {
+        if (c == '\'' || c == '"') {
+            const char quote = c;
             in_word = true;
             ++index;
             bool closed = false;
-            while (index < text.size()) {
-                if (text[index] == '\'') {
+            while (index < source.size()) {
+                const char quoted = source[index];
+                if (quoted == quote) {
                     closed = true;
                     ++index;
                     break;
                 }
-                current.push_back(text[index]);
-                ++index;
-            }
-            if (!closed) throw BackendError("No closing quotation");
-            continue;
-        }
-        if (c == '"') {
-            in_word = true;
-            ++index;
-            bool closed = false;
-            while (index < text.size()) {
-                if (text[index] == '"') {
-                    closed = true;
-                    ++index;
-                    break;
-                }
-                if (text[index] == '\\' && index + 1 < text.size() &&
-                    (text[index + 1] == '"' || text[index + 1] == '\\')) {
-                    current.push_back(text[index + 1]);
+                // Inside double quotes a backslash only escapes a quote or a
+                // backslash; inside single quotes it is a literal character.
+                if (quote == '"' && quoted == '\\' && index + 1 < source.size() &&
+                    (source[index + 1] == '"' || source[index + 1] == '\\')) {
+                    current.push_back(source[index + 1]);
                     index += 2;
                     continue;
                 }
-                current.push_back(text[index]);
+                current.push_back(quoted);
                 ++index;
             }
             if (!closed) throw BackendError("No closing quotation");

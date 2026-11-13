@@ -25,7 +25,8 @@ CommandResult run_command(const std::vector<std::string>& argv, const std::strin
 /// Start a program in its own session with stdio redirected, without waiting.
 bool spawn_detached(const std::vector<std::string>& argv, std::string& error);
 
-/// POSIX-shell-style word splitting, matching Python's `shlex.split`.
+/// POSIX-shell-style word splitting: single quotes, double quotes, backslash
+/// escapes and `#` comments, without any shell being involved.
 std::vector<std::string> split_shell_words(const std::string& text);
 
 }  // namespace loomwright

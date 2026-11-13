@@ -84,8 +84,7 @@ struct HandleLess {
 };
 
 /// One epoll-based event loop for devices, timers and dispatch tasks. It gives
-/// .loom scripts the cooperative ordering of the original runtime without an
-/// interpreter in the hot path.
+/// .loom scripts cooperative ordering without an interpreter in the hot path.
 class Scheduler {
 public:
     using handle_type = Task::handle_type;

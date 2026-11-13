@@ -14,7 +14,7 @@ using loomwright_test::eval_expression;
 using loomwright_test::RecordingBackend;
 
 
-TEST_CASE(evaluates_language_expressions_like_python) {
+TEST_CASE(evaluates_language_expressions) {
     CHECK_EQ(eval_expression("5-2").to_string(), std::string("3"));
     CHECK_EQ(eval_expression("1 / 2").to_string(), std::string("0.5"));
     CHECK_EQ(eval_expression("7 % 3").to_string(), std::string("1"));
@@ -26,10 +26,10 @@ TEST_CASE(evaluates_language_expressions_like_python) {
     CHECK_EQ(eval_expression("str(1.0)").to_string(), std::string("1.0"));
     CHECK_EQ(eval_expression("min(3, 1, 2)").to_string(), std::string("1"));
     CHECK_EQ(eval_expression("max(3, 1, 2)").to_string(), std::string("3"));
-    CHECK_EQ(eval_expression("not true").to_string(), std::string("False"));
+    CHECK_EQ(eval_expression("not true").to_string(), std::string("false"));
     CHECK_EQ(eval_expression("len(\"hello\")").to_string(), std::string("5"));
-    CHECK_EQ(eval_expression("1 == 1.0").to_string(), std::string("True"));
-    CHECK_EQ(eval_expression("true and false").to_string(), std::string("False"));
+    CHECK_EQ(eval_expression("1 == 1.0").to_string(), std::string("true"));
+    CHECK_EQ(eval_expression("true and false").to_string(), std::string("false"));
     CHECK_EQ(eval_expression("floor(2.9)").to_string(), std::string("2"));
     CHECK_EQ(eval_expression("ceil(2.1)").to_string(), std::string("3"));
 }
@@ -177,10 +177,10 @@ TEST_CASE(evaluates_list_and_string_functions) {
     CHECK_EQ(eval_expression("upper(\"hi\")").to_string(), std::string("HI"));
     CHECK_EQ(eval_expression("lower(\"HI\")").to_string(), std::string("hi"));
     CHECK_EQ(eval_expression("trim(\"  hi  \")").to_string(), std::string("hi"));
-    CHECK_EQ(eval_expression("starts_with(\"hello\", \"he\")").to_string(), std::string("True"));
-    CHECK_EQ(eval_expression("ends_with(\"hello\", \"lo\")").to_string(), std::string("True"));
-    CHECK_EQ(eval_expression("contains(\"hello\", \"ell\")").to_string(), std::string("True"));
-    CHECK_EQ(eval_expression("contains([\"a\", \"b\"], \"b\")").to_string(), std::string("True"));
+    CHECK_EQ(eval_expression("starts_with(\"hello\", \"he\")").to_string(), std::string("true"));
+    CHECK_EQ(eval_expression("ends_with(\"hello\", \"lo\")").to_string(), std::string("true"));
+    CHECK_EQ(eval_expression("contains(\"hello\", \"ell\")").to_string(), std::string("true"));
+    CHECK_EQ(eval_expression("contains([\"a\", \"b\"], \"b\")").to_string(), std::string("true"));
     CHECK_EQ(eval_expression("replace(\"a-b\", \"-\", \"+\")").to_string(), std::string("a+b"));
     CHECK_EQ(eval_expression("substr(\"hello\", 1, 3)").to_string(), std::string("ell"));
     CHECK_EQ(eval_expression("substr(\"hello\", -2)").to_string(), std::string("lo"));
@@ -205,7 +205,7 @@ loom "lists" {
     runtime.scheduler().spawn(runtime.run_event(script.events.at(0)));
     runtime.scheduler().run();
     CHECK_EQ(runtime.variables().at("joined").to_string(), std::string("abc"));
-    CHECK_EQ(runtime.variables().at("same").to_string(), std::string("True"));
+    CHECK_EQ(runtime.variables().at("same").to_string(), std::string("true"));
 }
 
 TEST_CASE(for_loops_iterate_ranges_and_lists) {

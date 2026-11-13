@@ -1,38 +1,41 @@
 #include "value.hpp"
 
-#include <cerrno>
 #include <charconv>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
 #include <limits>
+#include <string_view>
 
 #include "errors.hpp"
 
 namespace loomwright {
 namespace {
 
-const char* kInvalidInt = "invalid literal for int()";
-const char* kInvalidFloat = "could not convert string to float";
+constexpr std::string_view kWhitespace = " \t\n\r\v\f";
 
-bool is_space(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+/// The whitespace-trimmed view of a string.
+std::string_view trim(std::string_view text) {
+    const size_t begin = text.find_first_not_of(kWhitespace);
+    if (begin == std::string_view::npos) return {};
+    const size_t end = text.find_last_not_of(kWhitespace);
+    return text.substr(begin, end - begin + 1);
 }
 
-std::string strip(const std::string& text) {
-    size_t begin = 0;
-    size_t end = text.size();
-    while (begin < end && is_space(text[begin])) ++begin;
-    while (end > begin && is_space(text[end - 1])) --end;
-    return text.substr(begin, end - begin);
+[[noreturn]] void throw_value_error(std::string_view message) {
+    throw RuntimeErrorLoomwright(std::string(message));
 }
 
-[[noreturn]] void throw_value_error(const std::string& message) {
-    throw RuntimeErrorLoomwright(message);
+/// The ASCII-lowercased copy of a string, for case-insensitive spellings.
+std::string lower_ascii(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const char c : text) {
+        out.push_back(static_cast<char>((c >= 'A' && c <= 'Z') ? c - 'A' + 'a' : c));
+    }
+    return out;
 }
 
-/// Python's `repr()` of a list, which is also its `str()`.
-std::string list_repr(const std::vector<Value>& values) {
+/// The source form of a list: elements in brackets, separated by commas.
+std::string format_list(const std::vector<Value>& values) {
     std::string out = "[";
     for (size_t index = 0; index < values.size(); ++index) {
         if (index > 0) out += ", ";
@@ -111,8 +114,8 @@ long long Value::as_int() const {
         case Type::Int: return integer;
         case Type::Bool: return boolean ? 1 : 0;
         case Type::Float: {
-            if (std::isnan(real)) throw_value_error(std::string(kInvalidInt) + ": cannot convert float NaN to integer");
-            if (std::isinf(real)) throw_value_error(std::string(kInvalidInt) + ": cannot convert float infinity to integer");
+            if (std::isnan(real)) throw_value_error("cannot convert NaN to an integer");
+            if (std::isinf(real)) throw_value_error("cannot convert infinity to an integer");
             const double truncated = std::trunc(real);
             if (truncated >= static_cast<double>(std::numeric_limits<long long>::max())) {
                 return std::numeric_limits<long long>::max();
@@ -123,18 +126,18 @@ long long Value::as_int() const {
             return static_cast<long long>(truncated);
         }
         case Type::Str: {
-            const std::string trimmed = strip(text);
+            const std::string_view trimmed = trim(text);
             long long parsed = 0;
             const char* begin = trimmed.data();
             const char* end = begin + trimmed.size();
-            auto result = std::from_chars(begin, end, parsed);
+            const auto result = std::from_chars(begin, end, parsed);
             if (trimmed.empty() || result.ec != std::errc() || result.ptr != end) {
-                throw_value_error(std::string(kInvalidInt) + " with base 10: " + py_repr_string(text));
+                throw_value_error("cannot parse an integer from " + quote_string(text));
             }
             return parsed;
         }
         case Type::List:
-            throw_value_error(std::string(kInvalidInt) + ": cannot convert list to integer");
+            throw_value_error("cannot convert a list to an integer");
     }
     return 0;
 }
@@ -146,44 +149,55 @@ double Value::as_double() const {
         case Type::Bool: return boolean ? 1.0 : 0.0;
         case Type::Float: return real;
         case Type::Str: {
-            const std::string trimmed = strip(text);
+            const std::string_view trimmed = trim(text);
             if (trimmed.empty()) {
-                throw_value_error(std::string(kInvalidFloat) + ": " + py_repr_string(text));
+                throw_value_error("cannot convert " + quote_string(text) + " to a number");
             }
-            errno = 0;
-            char* parsed_end = nullptr;
-            const double parsed = std::strtod(trimmed.c_str(), &parsed_end);
-            if (parsed_end != trimmed.c_str() + trimmed.size() || errno == ERANGE) {
-                throw_value_error(std::string(kInvalidFloat) + ": " + py_repr_string(text));
+            // A leading '+' is not part of the from_chars grammar.
+            const std::string_view signed_text = trimmed.front() == '+' ? trimmed.substr(1) : trimmed;
+            double parsed = 0.0;
+            const char* begin = signed_text.data();
+            const char* end = begin + signed_text.size();
+            const auto result = std::from_chars(begin, end, parsed);
+            if (result.ec == std::errc() && result.ptr == end) return parsed;
+
+            // from_chars rejects the infinity and NaN spellings; accept them.
+            const std::string lowered = lower_ascii(signed_text);
+            const bool negative = !lowered.empty() && lowered.front() == '-';
+            const std::string magnitude = negative ? lowered.substr(1) : lowered;
+            if (magnitude == "inf" || magnitude == "infinity") {
+                return negative ? -std::numeric_limits<double>::infinity()
+                                : std::numeric_limits<double>::infinity();
             }
-            return parsed;
+            if (magnitude == "nan") return std::numeric_limits<double>::quiet_NaN();
+            throw_value_error("cannot convert " + quote_string(text) + " to a number");
         }
         case Type::List:
-            throw_value_error(std::string(kInvalidFloat) + ": cannot convert list to float");
+            throw_value_error("cannot convert a list to a number");
     }
     return 0.0;
 }
 
 std::string Value::to_string() const {
     switch (type) {
-        case Type::None: return "None";
+        case Type::None: return "none";
         case Type::Int: return std::to_string(integer);
-        case Type::Float: return py_float_str(real);
-        case Type::Bool: return boolean ? "True" : "False";
+        case Type::Float: return format_float(real);
+        case Type::Bool: return boolean ? "true" : "false";
         case Type::Str: return text;
-        case Type::List: return items ? list_repr(*items) : "[]";
+        case Type::List: return items ? format_list(*items) : "[]";
     }
     return "";
 }
 
 std::string Value::repr() const {
     switch (type) {
-        case Type::None: return "None";
+        case Type::None: return "none";
         case Type::Int: return std::to_string(integer);
-        case Type::Float: return py_float_str(real);
-        case Type::Bool: return boolean ? "True" : "False";
-        case Type::Str: return py_repr_string(text);
-        case Type::List: return items ? list_repr(*items) : "[]";
+        case Type::Float: return format_float(real);
+        case Type::Bool: return boolean ? "true" : "false";
+        case Type::Str: return quote_string(text);
+        case Type::List: return items ? format_list(*items) : "[]";
     }
     return "";
 }
@@ -215,83 +229,46 @@ bool value_equals(const Value& left, const Value& right) {
     return false;
 }
 
-std::string py_float_str(double value) {
-    if (std::isnan(value)) return "nan";
+std::string format_float(double value) {
+    if (std::isnan(value)) return "NaN";
     if (std::isinf(value)) return value < 0 ? "-inf" : "inf";
     if (value == 0.0) return std::signbit(value) ? "-0.0" : "0.0";
 
     char buffer[64];
-    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::scientific);
-    std::string scientific(buffer, result.ptr);
-    const size_t exponent_position = scientific.find('e');
-    if (exponent_position == std::string::npos) return scientific;
-
-    std::string mantissa = scientific.substr(0, exponent_position);
-    const int exponent = std::stoi(scientific.substr(exponent_position + 1));
-
-    bool negative = false;
-    if (!mantissa.empty() && mantissa.front() == '-') {
-        negative = true;
-        mantissa.erase(mantissa.begin());
-    }
-    std::string digits;
-    for (char c : mantissa) {
-        if (c != '.') digits.push_back(c);
-    }
-
-    // Python prints fixed notation while -4 < decimal_point <= 16, and
-    // scientific notation otherwise.
-    const int decimal_point = exponent + 1;
-    std::string out;
-    if (decimal_point > -4 && decimal_point <= 16) {
-        if (decimal_point <= 0) {
-            out = "0." + std::string(static_cast<size_t>(-decimal_point), '0') + digits;
-        } else if (static_cast<size_t>(decimal_point) >= digits.size()) {
-            out = digits + std::string(static_cast<size_t>(decimal_point) - digits.size(), '0') + ".0";
-        } else {
-            out = digits.substr(0, static_cast<size_t>(decimal_point)) + "." +
-                  digits.substr(static_cast<size_t>(decimal_point));
-        }
-    } else {
-        out = digits.substr(0, 1);
-        if (digits.size() > 1) out += "." + digits.substr(1);
-        out += "e";
-        out += exponent < 0 ? "-" : "+";
-        const int absolute = exponent < 0 ? -exponent : exponent;
-        if (absolute < 10) out += "0";
-        out += std::to_string(absolute);
-    }
-    return negative ? "-" + out : out;
+    const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value);
+    std::string out(buffer, result.ptr);
+    // Keep the float visible: a whole number still reads as a float.
+    if (out.find_first_of(".eE") == std::string::npos) out += ".0";
+    return out;
 }
 
-std::string py_repr_string(const std::string& text) {
-    const bool has_single = text.find('\'') != std::string::npos;
-    const bool has_double = text.find('"') != std::string::npos;
-    const char quote = (has_single && !has_double) ? '"' : '\'';
+std::string quote_string(std::string_view text) {
+    static constexpr char kHexDigits[] = "0123456789abcdef";
 
     std::string out;
-    out.push_back(quote);
-    for (unsigned char c : text) {
-        if (c == '\\') {
-            out += "\\\\";
-        } else if (c == static_cast<unsigned char>(quote)) {
-            out.push_back('\\');
-            out.push_back(static_cast<char>(c));
-        } else if (c == '\n') {
-            out += "\\n";
-        } else if (c == '\r') {
-            out += "\\r";
-        } else if (c == '\t') {
-            out += "\\t";
-        } else if (c < 0x20 || c == 0x7f) {
-            char buffer[8];
-            std::snprintf(buffer, sizeof(buffer), "\\x%02x", c);
-            out += buffer;
-        } else {
-            out.push_back(static_cast<char>(c));
+    out.reserve(text.size() + 2);
+    out.push_back('"');
+    for (const char raw : text) {
+        const unsigned char c = static_cast<unsigned char>(raw);
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (c < 0x20) {
+                    out += "\\u00";
+                    out.push_back(kHexDigits[(c >> 4) & 0x0F]);
+                    out.push_back(kHexDigits[c & 0x0F]);
+                } else {
+                    out.push_back(raw);
+                }
         }
     }
-    out.push_back(quote);
+    out.push_back('"');
     return out;
 }
 

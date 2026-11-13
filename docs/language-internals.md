@@ -71,7 +71,9 @@ handler is the primary key.
 - `GuiPanel` / `GuiWidget` — persistent panel declarations.
 - `Remap` — source and target key/chord.
 - `Value` — int/double/bool/string with `repr`/`str` formatting and
-  truthiness.
+  truthiness. `str()` prints `none`, `true`, `false`, the number, the string
+  itself, or a bracketed list; `repr()` additionally quotes and escapes
+  strings. Floats use the shortest round-trip text (`1.5`, `1.0`, `1e+16`).
 
 ## Statement dispatch
 

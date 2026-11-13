@@ -172,8 +172,8 @@ loom "bad-options" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown option 'nonsense'"));
-    CHECK_TRUE(has_message_containing(diagnostics, "Invalid value 'tape' for option 'output'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown option \"nonsense\""));
+    CHECK_TRUE(has_message_containing(diagnostics, "Invalid value \"tape\" for option \"output\""));
 }
 
 TEST_CASE(static_check_rejects_unknown_panic_key) {
@@ -185,7 +185,7 @@ loom "bad-panic" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOT_A_KEY_XYZ'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key \"NOT_A_KEY_XYZ\""));
 }
 
 TEST_CASE(static_check_rejects_unknown_keys_and_buttons) {
@@ -198,8 +198,8 @@ loom "bad-keys" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOTAKEY'"));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown mouse button 'pinky'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key \"NOTAKEY\""));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown mouse button \"pinky\""));
 }
 
 TEST_CASE(sees_else_on_the_next_line) {
@@ -282,7 +282,7 @@ loom "bad-remap" {
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
     CHECK_TRUE(has_message_containing(diagnostics, "Remap source Q is the panic key"));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key 'NOT_A_KEY_XYZ'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown key \"NOT_A_KEY_XYZ\""));
     CHECK_TRUE(has_message_containing(diagnostics, "Remap source A is already bound by a when key block"));
 }
 
@@ -336,9 +336,9 @@ loom "bad-gui" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'shared' is declared more than once"));
-    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'missing' is not declared in a gui block"));
-    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget 'shared' is not a button"));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget \"shared\" is declared more than once"));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget \"missing\" is not declared in a gui block"));
+    CHECK_TRUE(has_message_containing(diagnostics, "GUI widget \"shared\" is not a button"));
 }
 
 TEST_CASE(parses_send_statements) {
@@ -390,8 +390,8 @@ loom "holds" {
 }
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
-    CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token 'stuck' is never freed"));
-    CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token 'missing' is freed but never held"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token \"stuck\" is never freed"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Mouse hold token \"missing\" is freed but never held"));
 }
 
 TEST_CASE(parses_durations_and_bare_numbers) {
@@ -415,7 +415,7 @@ TEST_CASE(lexer_reports_unexpected_characters_with_a_position) {
         CHECK_TRUE(false);
     } catch (const LexError& error) {
         const std::string message = error.what();
-        CHECK_TRUE(message.find("Unexpected character '@'") != std::string::npos);
+        CHECK_TRUE(message.find("Unexpected character \"@\"") != std::string::npos);
         CHECK_TRUE(message.find("at 2:18") != std::string::npos);
     }
 }
@@ -459,16 +459,20 @@ loom "bad-mouse" {
     CHECK_TRUE(has_message_containing(diagnostics, "Unknown mouse button"));
 }
 
-TEST_CASE(formats_python_style_values) {
-    CHECK_EQ(py_float_str(1.5), std::string("1.5"));
-    CHECK_EQ(py_float_str(1.0), std::string("1.0"));
-    CHECK_EQ(py_float_str(0.1), std::string("0.1"));
-    CHECK_EQ(py_float_str(0.0001), std::string("0.0001"));
-    CHECK_EQ(py_float_str(0.00001), std::string("1e-05"));
+TEST_CASE(formats_values_in_the_language_style) {
+    CHECK_EQ(format_float(1.5), std::string("1.5"));
+    CHECK_EQ(format_float(1.0), std::string("1.0"));
+    CHECK_EQ(format_float(0.1), std::string("0.1"));
+    CHECK_EQ(format_float(0.0001), std::string("1e-04"));
+    CHECK_EQ(format_float(0.00001), std::string("1e-05"));
     CHECK_EQ(Value::of_float(1e16).to_string(), std::string("1e+16"));
-    CHECK_EQ(Value::of_bool(true).to_string(), std::string("True"));
-    CHECK_EQ(py_repr_string("a'b"), std::string("\"a'b\""));
-    CHECK_EQ(py_repr_string("a\nb"), std::string("'a\\nb'"));
+    CHECK_EQ(Value::of_bool(true).to_string(), std::string("true"));
+    CHECK_EQ(Value::of_bool(false).to_string(), std::string("false"));
+    CHECK_EQ(Value::none().to_string(), std::string("none"));
+    CHECK_EQ(quote_string("a'b"), std::string("\"a'b\""));
+    CHECK_EQ(quote_string("a\nb"), std::string("\"a\\nb\""));
+    CHECK_EQ(quote_string("a\"b"), std::string("\"a\\\"b\""));
+    CHECK_EQ(Value::of_str("a\nb").repr(), std::string("\"a\\nb\""));
 }
 
 TEST_CASE(parses_list_literals_and_subscripts) {
@@ -593,7 +597,7 @@ loom "unknown" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "Unknown function 'no_such_function'"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Unknown function \"no_such_function\""));
 }
 
 TEST_CASE(static_check_rejects_wrong_argument_counts) {
@@ -633,8 +637,8 @@ loom "dupes" {
 )LOOMWRIGHT");
     const auto diagnostics = check_script(script);
     CHECK_TRUE(has_error(diagnostics));
-    CHECK_TRUE(has_message_containing(diagnostics, "Function 'helper' is declared more than once"));
-    CHECK_TRUE(has_message_containing(diagnostics, "Function 'len' shadows a built-in function"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function \"helper\" is declared more than once"));
+    CHECK_TRUE(has_message_containing(diagnostics, "Function \"len\" shadows a built-in function"));
 }
 
 TEST_CASE(static_check_rejects_loop_control_outside_a_loop) {

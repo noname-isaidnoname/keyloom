@@ -118,20 +118,20 @@ std::vector<Diagnostic> check_script(const Script& script) {
         const Value& value = entry.second;
         const OptionRule* rule = find_rule(key);
         if (rule == nullptr) {
-            out.push_back({"error", "Unknown option " + py_repr_string(key), 0});
+            out.push_back({"error", "Unknown option " + quote_string(key), 0});
         } else if (rule->boolean) {
-            // Python's set membership accepted 0/1 for the boolean option too.
+            // A boolean option also accepts the integers 0 and 1.
             const bool numeric_flag = value.type == Value::Type::Bool ||
                                       (value.type == Value::Type::Int && (value.integer == 0 || value.integer == 1));
             if (!numeric_flag) {
-                out.push_back({"error", "Invalid value " + value.repr() + " for option " + py_repr_string(key), 0});
+                out.push_back({"error", "Invalid value " + value.repr() + " for option " + quote_string(key), 0});
             }
         } else if (!rule->values.empty()) {
             const std::string text = value.type == Value::Type::Str ? value.text : value.repr();
             const bool known = value.type == Value::Type::Str &&
                                std::find(rule->values.begin(), rule->values.end(), text) != rule->values.end();
             if (!known) {
-                out.push_back({"error", "Invalid value " + value.repr() + " for option " + py_repr_string(key), 0});
+                out.push_back({"error", "Invalid value " + value.repr() + " for option " + quote_string(key), 0});
             }
         }
     }
@@ -178,16 +178,16 @@ std::vector<Diagnostic> check_script(const Script& script) {
     std::set<std::string> gui_titles;
     for (const auto& panel : script.panels) {
         if (!gui_titles.insert(panel.title).second) {
-            out.push_back({"error", "GUI panel title " + py_repr_string(panel.title) + " is used more than once", panel.line});
+            out.push_back({"error", "GUI panel title " + quote_string(panel.title) + " is used more than once", panel.line});
         }
         if (panel.widgets.empty()) {
-            out.push_back({"error", "GUI panel " + py_repr_string(panel.title) + " has no widgets", panel.line});
+            out.push_back({"error", "GUI panel " + quote_string(panel.title) + " has no widgets", panel.line});
         }
         for (const auto& widget : panel.widgets) {
             if (widget.id.empty()) continue;
             const std::string kind = widget.kind == GuiWidget::Kind::Input ? "input" : "button";
             if (!gui_widgets.emplace(widget.id, kind).second) {
-                out.push_back({"error", "GUI widget " + py_repr_string(widget.id) + " is declared more than once", widget.line});
+                out.push_back({"error", "GUI widget " + quote_string(widget.id) + " is declared more than once", widget.line});
             }
         }
     }
@@ -195,18 +195,18 @@ std::vector<Diagnostic> check_script(const Script& script) {
     std::map<std::string, const Function*> functions;
     for (const auto& function : script.functions) {
         if (is_builtin_function(function.name)) {
-            out.push_back({"error", "Function " + py_repr_string(function.name) + " shadows a built-in function",
+            out.push_back({"error", "Function " + quote_string(function.name) + " shadows a built-in function",
                            function.line});
         }
         if (!functions.emplace(function.name, &function).second) {
-            out.push_back({"error", "Function " + py_repr_string(function.name) + " is declared more than once",
+            out.push_back({"error", "Function " + quote_string(function.name) + " is declared more than once",
                            function.line});
         }
         std::set<std::string> params;
         for (const auto& param : function.params) {
             if (!params.insert(param).second) {
-                out.push_back({"error", "Parameter " + py_repr_string(param) + " is declared more than once in function " +
-                                           py_repr_string(function.name),
+                out.push_back({"error", "Parameter " + quote_string(param) + " is declared more than once in function " +
+                                           quote_string(function.name),
                                function.line});
             }
         }
@@ -233,7 +233,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
             try {
                 const std::string canonical = validate_key_name(part);
                 if (!chord.insert(canonical).second) {
-                    out.push_back({"error", "Key chord in remap target contains " + py_repr_string(canonical) + " more than once", remap.line});
+                    out.push_back({"error", "Key chord in remap target contains " + quote_string(canonical) + " more than once", remap.line});
                 }
             } catch (const BackendError& error) {
                 out.push_back({"error", error.what(), remap.line});
@@ -294,29 +294,29 @@ std::vector<Diagnostic> check_script(const Script& script) {
             for (size_t index = 0; index + 1 < parts.size(); ++index) {
                 if (have_panic_key && canonical_or_empty(parts[index]) == panic_key) {
                     out.push_back({"warning",
-                                   "Chord binding " + py_repr_string(join_chord(parts)) +
+                                   "Chord binding " + quote_string(join_chord(parts)) +
                                        " can never fire while " + parts[index] + " is the panic key",
                                    event.line});
                 }
             }
         }
         if (kind == "mouse" && !is_mouse_button(event.event_key)) {
-            out.push_back({"error", "Unknown mouse button " + py_repr_string(event.event_key), event.line});
+            out.push_back({"error", "Unknown mouse button " + quote_string(event.event_key), event.line});
         }
         if (kind == "gui") {
             if (event.edge == "clicked") {
                 const auto found = gui_widgets.find(event.event_key);
                 if (found == gui_widgets.end()) {
-                    out.push_back({"error", "GUI widget " + py_repr_string(event.event_key) + " is not declared in a gui block", event.line});
+                    out.push_back({"error", "GUI widget " + quote_string(event.event_key) + " is not declared in a gui block", event.line});
                 } else if (found->second != "button") {
-                    out.push_back({"error", "GUI widget " + py_repr_string(event.event_key) + " is not a button", event.line});
+                    out.push_back({"error", "GUI widget " + quote_string(event.event_key) + " is not a button", event.line});
                 }
             } else if (event.edge == "close") {
                 if (event.event_key != "window") {
                     out.push_back({"error", "GUI window close event must be 'when gui window closes'", event.line});
                 }
             } else {
-                out.push_back({"error", "Unsupported GUI event edge " + py_repr_string(event.edge), event.line});
+                out.push_back({"error", "Unsupported GUI event edge " + quote_string(event.edge), event.line});
             }
         }
         if (kind == "timer" && event.interval <= 0.0) {
@@ -329,7 +329,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
         walk(event.body, [&](const Node& node) {
             if (node.stmt == StmtKind::Mouse && !node.is_event) {
                 if (!is_mouse_button(node.a)) {
-                    out.push_back({"error", "Unknown mouse button " + py_repr_string(node.a), node.line});
+                    out.push_back({"error", "Unknown mouse button " + quote_string(node.a), node.line});
                 }
                 const std::string owner =
                     (kind == "key" || kind == "mouse") ? event.event_key : std::string("script");
@@ -410,7 +410,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
                     }
                     const auto found = functions.find(name);
                     if (found == functions.end()) {
-                        out.push_back({"error", "Unknown function " + py_repr_string(name), expression.line});
+                        out.push_back({"error", "Unknown function " + quote_string(name), expression.line});
                         return;
                     }
                     if (count != found->second->params.size()) {
@@ -447,7 +447,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
     std::sort(unheld.begin(), unheld.end());
     for (const auto& token : unheld) {
         out.push_back({"warning",
-                       "Mouse hold token " + py_repr_string(token) +
+                       "Mouse hold token " + quote_string(token) +
                            " is never freed; runtime safety cleanup will release it",
                        0});
     }
@@ -457,7 +457,7 @@ std::vector<Diagnostic> check_script(const Script& script) {
     }
     std::sort(unfreed.begin(), unfreed.end());
     for (const auto& token : unfreed) {
-        out.push_back({"warning", "Mouse hold token " + py_repr_string(token) + " is freed but never held", 0});
+        out.push_back({"warning", "Mouse hold token " + quote_string(token) + " is freed but never held", 0});
     }
 
     if (out.empty()) out.push_back({"ok", "Script syntax and static checks passed", 0});

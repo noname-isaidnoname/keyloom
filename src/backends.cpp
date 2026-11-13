@@ -26,7 +26,7 @@ const std::vector<int>& pointer_buttons() {
 int button_code(const std::string& name) {
     const auto& buttons = mouse_buttons();
     const auto found = buttons.find(name);
-    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + py_repr_string(name));
+    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + quote_string(name));
     static const int kCodes[] = {BTN_LEFT, BTN_RIGHT, BTN_MIDDLE, BTN_SIDE, BTN_EXTRA};
     return kCodes[found->second];
 }
@@ -64,7 +64,7 @@ void DryRunBackend::key(const std::string& name, bool down) {
 }
 
 void DryRunBackend::type_text(const std::string& text) {
-    std::cout << "[dry-run] type " << py_repr_string(text) << "\n";
+    std::cout << "[dry-run] type " << quote_string(text) << "\n";
 }
 
 void DryRunBackend::scroll(int x, int y) { std::cout << "[dry-run] scroll " << x << ", " << y << "\n"; }
@@ -141,7 +141,7 @@ void YdotoolBackend::button(const std::string& name, bool down) {
     // down and 0x80 for up, not the kernel BTN_* code.
     const auto& buttons = mouse_buttons();
     const auto found = buttons.find(name);
-    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + py_repr_string(name));
+    if (found == buttons.end()) throw BackendError("Unsupported mouse button " + quote_string(name));
     const int code = found->second | (down ? 0x40 : 0x80);
     char encoded[16];
     std::snprintf(encoded, sizeof(encoded), "0x%x", code);
@@ -422,7 +422,7 @@ std::unique_ptr<OutputBackend> choose_backend(const std::string& name, int width
         if (!which("ydotool").empty()) return std::make_unique<YdotoolBackend>(width, height);
         return std::make_unique<UInputBackend>(width, height);
     }
-    throw BackendError("Unknown output backend " + py_repr_string(name));
+    throw BackendError("Unknown output backend " + quote_string(name));
 }
 
 }  // namespace loomwright

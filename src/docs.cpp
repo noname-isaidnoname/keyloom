@@ -44,6 +44,21 @@ Syntax rules
 * Expressions support + - * / %, comparisons, and/or/not, parentheses, variables,
   literals, and function calls. Booleans are true and false.
 
+Values
+------
+
+A value is an integer, a float, a boolean, a string, a list, or no value.
+The no value is written `none`; a function without a result returns it.
+
+    log 1          # 1
+    log 1.5        # 1.5
+    log true       # true
+    log "text"     # text
+    log [1, 2]     # [1, 2]
+
+`str(x)` is the plain text of a value and `bool(x)` its truthiness. A float
+keeps a fractional part in its text, so `str(1.0)` is `1.0`.
+
 Event triggers
 --------------
 
@@ -464,7 +479,7 @@ std::string render_docs(const std::string& topic) {
         if (!topics.empty()) topics += ", ";
         topics += group.first;
     }
-    return "Unknown docs topic " + py_repr_string(topic) + ". Topics: " + topics;
+    return "Unknown docs topic " + quote_string(topic) + ". Topics: " + topics;
 }
 
 }  // namespace loomwright

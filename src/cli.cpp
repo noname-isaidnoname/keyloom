@@ -199,7 +199,7 @@ int command_devices() {
     return 0;
 }
 
-std::string boolean_text(bool value) { return value ? "True" : "False"; }
+std::string boolean_text(bool value) { return value ? "true" : "false"; }
 
 int command_doctor() {
     std::cout << "Loomwright " << version_string() << " — Linux desktop automation diagnostics\n";
@@ -401,7 +401,7 @@ CliArgs parse_cli(const std::vector<std::string>& args) {
         } else if (token == "--output-backend") {
             const std::string value = take_value(token);
             if (value != "auto" && value != "ydotool" && value != "uinput") {
-                throw CliUsageError("argument --output-backend: invalid choice: " + py_repr_string(value) +
+                throw CliUsageError("argument --output-backend: invalid choice: " + quote_string(value) +
                                     " (choose from 'auto', 'ydotool', 'uinput')");
             }
             parsed.output_backend = value;

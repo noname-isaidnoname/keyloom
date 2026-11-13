@@ -379,9 +379,9 @@ bool GuiHost::has_widget(const std::string& id) const {
 std::string GuiHost::value(const std::string& id) const {
     std::lock_guard<std::mutex> lock(mutex_);
     const int index = widget_index_by_id(id);
-    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
     if (panel_.widgets[static_cast<size_t>(index)].kind != GuiWidget::Kind::Input)
-        throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not an input.");
+        throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not an input.");
     return texts_[static_cast<size_t>(index)];
 }
 
@@ -390,9 +390,9 @@ void GuiHost::set_value(const std::string& id, const std::string& value) { set_t
 void GuiHost::set_text(const std::string& id, const std::string& text) {
     std::lock_guard<std::mutex> lock(mutex_);
     const int index = widget_index_by_id(id);
-    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+    if (index < 0) throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
     if (panel_.widgets[static_cast<size_t>(index)].kind == GuiWidget::Kind::Label)
-        throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is a label and has no variable text target.");
+        throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is a label and has no variable text target.");
     texts_[static_cast<size_t>(index)] = text;
     if (!closed_) draw_locked();
 }

@@ -2,15 +2,15 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace loomwright {
 
-/// A .loom runtime value. The language keeps Python's four scalar shapes
-/// (int, float, bool, string) plus "no value", because script semantics such as
-/// `str(1.5)`, `bool("")` and `round()` depend on them. Lists were added for
-/// the same reason Python has them: they are the natural container for the
-/// strings and numbers a script collects while it runs.
+/// A .loom runtime value. The language has four scalar shapes (int, float,
+/// bool, string) plus "no value", because script semantics such as
+/// `str(1.5)`, `bool("")` and `round()` depend on them. Lists are the
+/// container a script uses to collect the strings and numbers it works with.
 struct Value {
     enum class Type { None, Int, Float, Bool, Str, List };
 
@@ -20,7 +20,7 @@ struct Value {
     bool boolean = false;
     std::string text;
     /// List elements. The storage is shared between copies, so `append`
-    /// mutates a list in place the way Python does.
+    /// mutates a list in place and every copy sees the change.
     std::shared_ptr<std::vector<Value>> items;
 
     Value() = default;
@@ -41,24 +41,26 @@ struct Value {
     std::vector<Value>& list_items();
     const std::vector<Value>& list_items() const;
 
-    /// Python `int(value)`/float coercion; throws RuntimeErrorLoomwright when the
-    /// value cannot be converted.
+    /// Integer/float coercion; throws RuntimeErrorLoomwright when the value
+    /// cannot be converted.
     long long as_int() const;
     double as_double() const;
 
-    /// Python `str(value)`.
+    /// The plain text of a value: `none`, `true`, `false`, `1`, `1.0`, the
+    /// string itself, or a bracketed list of the elements' plain text.
     std::string to_string() const;
-    /// Python `repr(value)`.
+    /// The text of a value in source form: like `to_string()`, except that a
+    /// string is quoted and escaped and list elements use their source form.
     std::string repr() const;
 };
 
-/// Python's `==` for the scalar shapes the language exposes.
+/// Equality for the scalar shapes the language exposes.
 bool value_equals(const Value& left, const Value& right);
 
-/// Shortest round-trip float text in Python's `repr` style ("1.0", "1e+16").
-std::string py_float_str(double value);
+/// Shortest round-trip float text ("1.5", "1.0", "1e+16").
+std::string format_float(double value);
 
-/// Python's `repr()` of a string, including quote selection and escapes.
-std::string py_repr_string(const std::string& text);
+/// A quoted and escaped string literal ("a\"b\n").
+std::string quote_string(std::string_view text);
 
 }  // namespace loomwright

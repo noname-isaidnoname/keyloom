@@ -70,7 +70,7 @@ public:
                 }
                 for (const auto& entry : script.options) {
                     if (entry.first == key) {
-                        error("Option " + py_repr_string(key) + " is declared more than once");
+                        error("Option " + quote_string(key) + " is declared more than once");
                     }
                 }
                 script.options.emplace_back(key, value_expr->literal);
@@ -122,7 +122,7 @@ private:
 
     Token expect(const std::string& value) {
         if (is_value(value)) return advance();
-        raise_at("Expected " + py_repr_string(value) + ", found " + current().value.repr(), current());
+        raise_at("Expected " + quote_string(value) + ", found " + current().value.repr(), current());
     }
 
     Token expect_kind(TokenKind kind) {

@@ -28,9 +28,9 @@ std::string first_line_snippet(const std::string& source, size_t position) {
 
 [[noreturn]] void throw_unexpected(const std::string& source, size_t position, size_t line, size_t col) {
     const std::string character(1, source[position]);
-    std::string message = "Unexpected character " + py_repr_string(character);
+    std::string message = "Unexpected character " + quote_string(character);
     message += " at " + std::to_string(line) + ":" + std::to_string(col);
-    message += " near " + py_repr_string(first_line_snippet(source, position));
+    message += " near " + quote_string(first_line_snippet(source, position));
     throw LexError(message);
 }
 

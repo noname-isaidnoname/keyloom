@@ -60,14 +60,14 @@ struct SignalScope {
     SignalScope& operator=(const SignalScope&) = delete;
 };
 
-const char* py_type_name(const Value& value) {
+const char* type_name(const Value& value) {
     switch (value.type) {
         case Value::Type::Int: return "int";
         case Value::Type::Float: return "float";
         case Value::Type::Bool: return "bool";
         case Value::Type::Str: return "str";
         case Value::Type::List: return "list";
-        case Value::Type::None: return "NoneType";
+        case Value::Type::None: return "none";
     }
     return "object";
 }
@@ -127,8 +127,8 @@ int compare_values(const Value& left, const Value& right) {
         const int result = left.text.compare(right.text);
         return result < 0 ? -1 : (result > 0 ? 1 : 0);
     }
-    throw RuntimeErrorLoomwright(std::string("'<' not supported between instances of '") + py_type_name(left) +
-                              "' and '" + py_type_name(right) + "'");
+    throw RuntimeErrorLoomwright(std::string("'<' not supported between instances of '") + type_name(left) +
+                              "' and '" + type_name(right) + "'");
 }
 
 size_t utf8_length(const std::string& text) {
@@ -937,7 +937,7 @@ Task Runtime::execute(const Node& node, const EventContext& context) {
                 Value items;
                 co_await eval(node.exprs.at(0), context, items);
                 if (!items.is_list()) {
-                    throw RuntimeErrorLoomwright(std::string("for ... in requires a list, got ") + py_type_name(items));
+                    throw RuntimeErrorLoomwright(std::string("for ... in requires a list, got ") + type_name(items));
                 }
                 // Iterate a snapshot so the body may change the list.
                 const std::vector<Value> snapshot = items.list_items();
@@ -1053,7 +1053,7 @@ void Runtime::assign_variable(const std::string& name, Value value) {
 Task Runtime::call_user_function(const Function& function, std::vector<Value> args, const EventContext& context,
                                  Value& out) {
     if (args.size() != function.params.size()) {
-        throw RuntimeErrorLoomwright("Function " + py_repr_string(function.name) + "() takes " +
+        throw RuntimeErrorLoomwright("Function " + quote_string(function.name) + "() takes " +
                                   std::to_string(function.params.size()) + " argument(s), got " +
                                   std::to_string(args.size()));
     }
@@ -1169,7 +1169,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             return Value::of_int(static_cast<long long>(args[0].list_items().size()));
         }
         if (args[0].type != Value::Type::Str) {
-            throw RuntimeErrorLoomwright(std::string("object of type '") + py_type_name(args[0]) +
+            throw RuntimeErrorLoomwright(std::string("object of type '") + type_name(args[0]) +
                                       "' has no len()");
         }
         return Value::of_int(static_cast<long long>(utf8_length(args[0].text)));
@@ -1254,7 +1254,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
         if (host == nullptr) {
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
         }
         return Value::of_str(host->value(id));
     }
@@ -1263,7 +1263,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         const std::string id = lower_ascii(trim_ascii(args[0].to_string()));
         GuiHost* host = find_gui_widget(id);
         if (host == nullptr) {
-            throw RuntimeErrorLoomwright("GUI widget " + py_repr_string(id) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI widget " + quote_string(id) + " is not declared in a gui block.");
         }
         host->set_text(id, args[1].to_string());
         return Value::of_bool(true);
@@ -1279,7 +1279,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
             }
         }
         if (!found) {
-            throw RuntimeErrorLoomwright("GUI panel " + py_repr_string(title) + " is not declared in a gui block.");
+            throw RuntimeErrorLoomwright("GUI panel " + quote_string(title) + " is not declared in a gui block.");
         }
         return Value::of_bool(true);
     }
@@ -1342,7 +1342,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     // Strings.
     const auto require_string = [&](size_t index) -> const std::string& {
         if (args[index].type != Value::Type::Str) {
-            throw RuntimeErrorLoomwright(name + "() expects a string, got " + py_type_name(args[index]));
+            throw RuntimeErrorLoomwright(name + "() expects a string, got " + type_name(args[index]));
         }
         return args[index].text;
     };
@@ -1442,7 +1442,7 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
         for (size_t index = 0; index < items.size(); ++index) {
             if (index > 0) out += separator;
             if (items[index].type != Value::Type::Str) {
-                throw RuntimeErrorLoomwright(std::string("join() expects a list of strings, got ") + py_type_name(items[index]));
+                throw RuntimeErrorLoomwright(std::string("join() expects a list of strings, got ") + type_name(items[index]));
             }
             out += items[index].text;
         }
@@ -1481,9 +1481,9 @@ Value Runtime::call_function(const std::string& name, std::vector<Value> args, c
     }
 
     if (is_builtin_function(name)) {
-        throw RuntimeErrorLoomwright("Function " + py_repr_string(name) + " is declared but not implemented");
+        throw RuntimeErrorLoomwright("Function " + quote_string(name) + " is declared but not implemented");
     }
-    throw RuntimeErrorLoomwright("Unknown function " + py_repr_string(name));
+    throw RuntimeErrorLoomwright("Unknown function " + quote_string(name));
 }
 
 Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out) {
@@ -1502,7 +1502,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             }
             Value value;
             if (!lookup_variable(expr->name, value)) {
-                throw RuntimeErrorLoomwright("Unknown variable " + py_repr_string(expr->name));
+                throw RuntimeErrorLoomwright("Unknown variable " + quote_string(expr->name));
             }
             out = std::move(value);
             break;
@@ -1524,7 +1524,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             co_await eval(expr->args.at(0), context, base);
             co_await eval(expr->args.at(1), context, index_value);
             if (!base.is_list()) {
-                throw RuntimeErrorLoomwright(std::string("only a list can be indexed, got ") + py_type_name(base));
+                throw RuntimeErrorLoomwright(std::string("only a list can be indexed, got ") + type_name(base));
             }
             const std::vector<Value>& items = base.list_items();
             long long index = index_value.as_int();
@@ -1609,7 +1609,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
             }
             if (!numeric_like(left) || !numeric_like(right)) {
                 throw RuntimeErrorLoomwright("unsupported operand type(s) for " + op + ": '" +
-                                          py_type_name(left) + "' and '" + py_type_name(right) + "'");
+                                          type_name(left) + "' and '" + type_name(right) + "'");
             }
 
             const bool want_float = left.type == Value::Type::Float || right.type == Value::Type::Float;
@@ -1651,7 +1651,7 @@ Task Runtime::eval(const ExprPtr& expr, const EventContext& context, Value& out)
                                  : Value::of_int(left.as_int() * right.as_int());
                 break;
             }
-            throw RuntimeErrorLoomwright("unsupported operator " + py_repr_string(op));
+            throw RuntimeErrorLoomwright("unsupported operator " + quote_string(op));
         }
         case Expr::Kind::Call: {
             std::vector<Value> args;
@@ -1678,7 +1678,7 @@ void Runtime::hold_button(const std::string& owner, const std::string& button) {
     const auto existing = held_tokens_.find(owner);
     if (existing != held_tokens_.end()) {
         if (existing->second != button) {
-            throw RuntimeErrorLoomwright("Hold token " + py_repr_string(owner) + " already belongs to " +
+            throw RuntimeErrorLoomwright("Hold token " + quote_string(owner) + " already belongs to " +
                                       existing->second);
         }
         return;

@@ -41,8 +41,8 @@ std::vector<std::unique_ptr<InputDevice>> Runtime::open_input_devices(bool inclu
         auto device = InputDevice::open(path);
         if (!device) continue;
         const std::string name = lower_ascii(device->name());
-        // Never react to our own injected devices, or to the evdev proxies the
-        // Python remappers create when both tools run at once.
+        // Never react to our own injected devices, or to the evdev proxies
+        // other remappers create when two tools run at once.
         if (name.find("loomwright") != std::string::npos || name.find("ydotool") != std::string::npos ||
             name.find("virtual pointer") != std::string::npos ||
             name.find("remap_clicks") != std::string::npos) {

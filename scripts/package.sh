@@ -42,8 +42,12 @@ case ${1:-} in
             cp -L "$lib" "$appdir/usr/lib/$(basename "$lib")"
         done < <(ldd "$build/loomwright" | awk '/=> \/.* \(/ {print $3}')
         install -m755 "$root/packaging/appimage/AppRun" "$appdir/AppRun"
-        install -m644 "$root/packaging/appimage/loomwright.desktop" "$appdir/loomwright.desktop"
+        install -m644 "$root/packaging/appimage/io.github.noname_isaidnoname.loomwright.desktop" "$appdir/io.github.noname_isaidnoname.loomwright.desktop"
+        install -Dm644 "$root/packaging/appimage/io.github.noname_isaidnoname.loomwright.desktop" "$appdir/usr/share/applications/io.github.noname_isaidnoname.loomwright.desktop"
         install -m644 "$root/packaging/common/loomwright.svg" "$appdir/loomwright.svg"
+        # appimagetool looks for <desktop-entry-id>.appdata.xml; the filename
+        # must match the AppStream component id for appstreamcli to pass.
+        install -Dm644 "$root/packaging/common/io.github.noname_isaidnoname.loomwright.metainfo.xml" "$appdir/usr/share/metainfo/io.github.noname_isaidnoname.loomwright.appdata.xml"
         rsvg-convert -w 256 -h 256 "$appdir/loomwright.svg" -o "$appdir/loomwright.png"
         args=()
         if [[ -n ${APPIMAGE_RUNTIME:-} ]]; then args+=(--runtime-file "$APPIMAGE_RUNTIME"); fi

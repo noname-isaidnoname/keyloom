@@ -298,12 +298,14 @@ install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/loomwright"
 # tarball, Arch) installs these, so the program is visible in the application
 # menu and double-clicking a script opens a terminal.
 if(LOOMWRIGHT_DESKTOP_INTEGRATION)
-    install(FILES packaging/common/loomwright.desktop
+    install(FILES packaging/common/io.github.noname_isaidnoname.loomwright.desktop
         DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
     install(FILES packaging/common/loomwright.svg
         DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps")
     install(FILES packaging/common/loomwright.xml
         DESTINATION "${CMAKE_INSTALL_DATADIR}/mime/packages")
+    install(FILES packaging/common/io.github.noname_isaidnoname.loomwright.metainfo.xml
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
     install(PROGRAMS packaging/common/loomwright-terminal
         DESTINATION "${CMAKE_INSTALL_BINDIR}")
 endif()
@@ -316,7 +318,6 @@ set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE")
 set(CPACK_PACKAGE_FILE_NAME "loomwright-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "shared-mime-info, desktop-file-utils, hicolor-icon-theme")
-set(CPACK_RPM_PACKAGE_SUGGESTS "shared-mime-info, desktop-file-utils, hicolor-icon-theme")
 set(CPACK_RPM_PACKAGE_LICENSE MIT)
 set(CPACK_RPM_PACKAGE_AUTOREQPROV ON)
 if(LOOMWRIGHT_DESKTOP_INTEGRATION)

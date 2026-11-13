@@ -69,14 +69,15 @@ jobs:
         run: |
           set -euo pipefail
           for root in /tmp/deb-test /tmp/rpm-test; do
-            test -f "$root/usr/share/applications/loomwright.desktop"
+            test -f "$root/usr/share/applications/io.github.noname_isaidnoname.loomwright.desktop"
             test -f "$root/usr/share/icons/hicolor/scalable/apps/loomwright.svg"
             test -f "$root/usr/share/mime/packages/loomwright.xml"
+            test -f "$root/usr/share/metainfo/io.github.noname_isaidnoname.loomwright.metainfo.xml"
             test -x "$root/usr/bin/loomwright-terminal"
-            desktop-file-validate "$root/usr/share/applications/loomwright.desktop"
+            desktop-file-validate "$root/usr/share/applications/io.github.noname_isaidnoname.loomwright.desktop"
           done
-          desktop-file-validate packaging/common/loomwright.desktop
-          desktop-file-validate packaging/appimage/loomwright.desktop
+          desktop-file-validate packaging/common/io.github.noname_isaidnoname.loomwright.desktop
+          desktop-file-validate packaging/appimage/io.github.noname_isaidnoname.loomwright.desktop
       - uses: actions/upload-artifact@v7
         with:
           name: release-files
@@ -117,12 +118,12 @@ jobs:
           loomwright --version
           loomwright --check "$GITHUB_WORKSPACE/examples/two_spots.loom"
           ldd /usr/bin/loomwright | grep -q 'libgtk-3.so'
-          test -f /usr/share/applications/loomwright.desktop
+          test -f /usr/share/applications/io.github.noname_isaidnoname.loomwright.desktop
           test -f /usr/share/icons/hicolor/scalable/apps/loomwright.svg
           test -f /usr/share/mime/packages/loomwright.xml
           test -x /usr/bin/loomwright-terminal
-          desktop-file-validate /usr/share/applications/loomwright.desktop
-          xdg-mime query default application/x-loomwright | grep -qx loomwright.desktop
+          desktop-file-validate /usr/share/applications/io.github.noname_isaidnoname.loomwright.desktop
+          xdg-mime query default application/x-loomwright | grep -qx io.github.noname_isaidnoname.loomwright.desktop
       - uses: actions/upload-artifact@v7
         with:
           name: arch-package

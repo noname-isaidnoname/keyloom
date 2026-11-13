@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.noname_isaidnoname.loomwright</id>
+  <name>Loomwright</name>
+  <summary>Linux desktop automation language and runtime</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <developer id="io.github.noname_isaidnoname">
+    <name>Loomwright contributors</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <description>
+    <p>Loomwright is a Linux-first desktop automation language and native C++20
+    runtime. Scripts use readable .loom syntax, are statically checked before
+    running, and execute on a single event loop.</p>
+  </description>
+  <launchable type="desktop-id">io.github.noname_isaidnoname.loomwright.desktop</launchable>
+  <url type="homepage">https://github.com/noname-isaidnoname/loomwright</url>
+  <provides>
+    <binary>loomwright</binary>
+    <binary>loomwright-terminal</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+    <category>Development</category>
+  </categories>
+</component>

@@ -143,7 +143,7 @@ desktop integration files from `packaging/common/`:
 
 | File | Destination |
 | --- | --- |
-| `loomwright.desktop` | `share/applications/` |
+| `io.github.noname_isaidnoname.loomwright.desktop` | `share/applications/` |
 | `loomwright.svg` | `share/icons/hicolor/scalable/apps/` |
 | `loomwright.xml` | `share/mime/packages/` |
 | `loomwright-terminal` | `bin/` |
@@ -157,7 +157,7 @@ Every packaged build (DEB, RPM, tarball, AppImage, Arch) ships the same
 desktop entry, icon and MIME type, so Loomwright appears in the application menu
 with its icon and `*.loom` files can be opened from a file manager:
 
-- `loomwright.desktop` declares `Icon=loomwright`, `MimeType=application/x-loomwright;`
+- `io.github.noname_isaidnoname.loomwright.desktop` declares `Icon=loomwright`, `MimeType=application/x-loomwright;`
   and `Exec=loomwright-terminal %f`.
 - `loomwright.svg` is a scalable icon in the `hicolor` theme, so it follows the
   desktop's icon size and colour scheme.
@@ -191,7 +191,7 @@ stay in sync with `project(loomwright VERSION ...)` in `CMakeLists.txt`. `check(
 only runs `ctest` when `LOOMWRIGHT_BUILD_TESTS=ON` is passed to `makepkg`.
 
 The package also registers a file association: `*.loom` files get the
-`application/x-loomwright` MIME type, and `loomwright.desktop` is the default
+`application/x-loomwright` MIME type, and `io.github.noname_isaidnoname.loomwright.desktop` is the default
 handler, so double-clicking a script in a file manager runs it. The desktop
 entry, the scalable `hicolor` icon, the MIME type and the
 `/usr/bin/loomwright-terminal` launcher come from the shared

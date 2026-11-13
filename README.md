@@ -41,10 +41,11 @@ its icon and `*.loom` files can be opened from a file manager:
 - an application entry named *Loomwright*,
 - a scalable icon that follows your theme,
 - the `application/x-loomwright` MIME type for `*.loom` files,
+- an AppStream metainfo file,
 - `loomwright-terminal`, which runs a script inside a terminal emulator so its
   output stays visible.
 
-The AppImage carries the icon and desktop entry inside the image.
+The AppImage carries the icon, desktop entry and metainfo inside the image.
 
 ### Build from source
 

@@ -33,6 +33,8 @@ Internal docs live in `docs/`; start at [`docs/README.md`](docs/README.md) and r
 - Commit once verified: run `make` (build plus the full test suite) and, when the language changes, `loomwright --check` on every script in `examples/`. See [`docs/contributing.md#committing`](docs/contributing.md#committing). **Read first if the task also involves committing changes at the end.**
 - Do not assume the session type, compositor, distro or package manager anywhere — detect at runtime and keep docs generic. See [`docs/build-and-install.md#environment-assumptions`](docs/build-and-install.md#environment-assumptions).
 - Use `rg` (if available) instead of `grep` for faster searching.
+- If the user implicitly states that you should search for something, and the web search tool is available in your harness, use it to search for information about the task you are working on. For queries, use DuckDuckGo (html) or similar search engines which you can access.
+    - If not available, Try `curl` or `wget` to fetch the information.
 
 
 ## Gotchas
